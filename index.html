@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSE ICT Practice Platform (2025+ Syllabus)</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#1a2233;--muted:#64748b;--pri:#4f46e5;--prid:#4338ca;
+--good:#16a34a;--bad:#dc2626;--warn:#d97706;--bd:#e2e8f0;--code:#1e1e2e;--codeink:#e6e6ff;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
+#errbox{display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#dc2626;color:#fff;padding:10px 14px;font:13px monospace;white-space:pre-wrap}
+header{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:26px 16px;text-align:center;position:relative}
+header h1{font-size:1.6rem}header p{opacity:.9;margin-top:6px;font-size:.95rem}
+.loginbtn{position:absolute;top:16px;right:120px;background:#fff;color:#4f46e5;border:none;padding:8px 16px;border-radius:999px;cursor:pointer;font-size:.85rem;font-weight:700;transition:.15s;text-decoration:none;display:inline-block}
+.loginbtn:hover{background:#eef2ff}
+.adminbtn{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.55);color:#fff;padding:7px 15px;border-radius:999px;cursor:pointer;font-size:.85rem;font-weight:600;transition:.15s}
+.adminbtn:hover{background:rgba(255,255,255,.28)}
+main{max-width:900px;margin:0 auto;padding:26px 16px 60px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:24px;box-shadow:0 2px 10px rgba(15,23,42,.06);margin-bottom:16px}
+h2{font-size:1.2rem;margin-bottom:6px}
+.sub{color:var(--muted);font-size:.9rem;margin-bottom:16px}
+.center{text-align:center}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
+.tcard{border:2px solid var(--bd);border-radius:12px;padding:14px 10px;cursor:pointer;text-align:center;background:#fff;transition:.15s}
+.tcard:hover{border-color:var(--pri)}
+.tcard.on{border-color:var(--pri);background:#eef2ff;box-shadow:0 0 0 3px rgba(79,70,229,.12)}
+.tcard .ic{font-size:1.7rem}.tcard .nm{font-weight:600;margin-top:4px}.tcard .ds{font-size:.73rem;color:var(--muted);margin-top:2px}
+.orow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.orow b{min-width:96px}
+.pill{border:2px solid var(--bd);border-radius:999px;padding:7px 16px;cursor:pointer;background:#fff;font-size:.9rem;font-weight:500;transition:.15s}
+.pill:hover{border-color:var(--pri)}
+.pill.on{background:var(--pri);border-color:var(--pri);color:#fff}
+.pill.on.g{background:var(--good);border-color:var(--good)}
+.pill.on.o{background:var(--warn);border-color:var(--warn)}
+.pill.on.r{background:var(--bad);border-color:var(--bad)}
+select{padding:8px 12px;border:2px solid var(--bd);border-radius:8px;font-size:.92rem;background:#fff}
+.btn{display:inline-block;border:none;border-radius:10px;padding:12px 26px;font-size:1rem;font-weight:600;cursor:pointer;transition:.15s;margin-top:4px}
+.bp{background:var(--pri);color:#fff}.bp:hover{background:var(--prid)}
+.bs{background:#eef2ff;color:var(--pri);border:1px solid #c7d2fe}
+.btn:disabled{opacity:.5;cursor:default}
+.badge{display:inline-block;padding:3px 11px;border-radius:999px;font-size:.74rem;font-weight:700;text-transform:uppercase;color:#fff;margin-right:6px}
+.bpy{background:#2563eb}.bsq{background:#7c3aed}.bth{background:#0d9488}.bwd{background:#0891b2}.bal{background:#ea580c}.bcf{background:#db2777}
+.b1{background:var(--good)}.b2{background:var(--warn)}.b3{background:var(--bad)}
+#counter{color:var(--muted);font-size:.9rem;font-weight:600;float:right}
+.pwrap{height:8px;background:var(--bd);border-radius:99px;overflow:hidden;margin:10px 0 18px}
+#pbar{height:100%;background:linear-gradient(90deg,var(--pri),#7c3aed);width:0;transition:.4s}
+#qtext{font-size:1.05rem;line-height:1.6;margin-bottom:12px;white-space:pre-wrap}
+pre.code{background:var(--code);color:var(--codeink);padding:14px 16px;border-radius:10px;font-family:Consolas,"Courier New",monospace;font-size:.9rem;line-height:1.5;overflow-x:auto;margin-bottom:14px;white-space:pre}
+.opts{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.opt{border:2px solid var(--bd);border-radius:10px;padding:12px 15px;cursor:pointer;background:#fff;text-align:left;font-size:.97rem;font-family:inherit}
+.opt:hover{border-color:var(--pri)}
+.opt.on{border-color:var(--pri);background:#eef2ff;font-weight:600}
+.opt.cr{border-color:var(--good);background:#f0fdf4}
+.opt.wr{border-color:var(--bad);background:#fef2f2}
+textarea{width:100%;min-height:100px;border:2px solid var(--bd);border-radius:10px;padding:12px 14px;font-family:Consolas,monospace;font-size:.94rem;resize:vertical}
+textarea:focus{outline:none;border-color:var(--pri)}
+.tin{display:block;width:100%;max-width:320px;padding:10px 12px;border:2px solid var(--bd);border-radius:8px;font-size:1rem;margin-bottom:10px}
+.tin:focus{outline:none;border-color:var(--pri)}
+#adminsearch{width:100%;padding:10px 12px;border:2px solid var(--bd);border-radius:8px;font-size:.95rem;margin-bottom:4px}
+#adminsearch:focus{outline:none;border-color:var(--pri)}
+.agroup{margin:20px 0 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.acts{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.hide{display:none!important}
+#fb{margin-top:16px;border-radius:12px;overflow:hidden;border:1px solid var(--bd)}
+.fbb{padding:12px 16px;font-weight:700;color:#fff}
+.fbb.ok{background:var(--good)}.fbb.no{background:var(--bad)}
+.fbm{padding:9px 16px;background:#fff7ed;color:#9a3412;font-size:.87rem;border-bottom:1px solid #fed7aa}
+.jb{padding:16px;background:#fafbff}
+.jb h4{font-size:.82rem;text-transform:uppercase;letter-spacing:.5px;color:var(--pri);margin:12px 0 5px}
+.jb h4:first-child{margin-top:0}
+.jb p,.jb li{font-size:.92rem;line-height:1.6;color:#334155}
+.jb ol,.jb ul{padding-left:20px;margin-top:3px}
+.tip{background:#fefce8;border-left:4px solid #eab308;padding:9px 13px;border-radius:6px;margin-top:12px;font-size:.89rem}
+.samp{background:var(--code);color:#a7f3d0;padding:11px 14px;border-radius:8px;margin-top:6px;font-family:Consolas,monospace;font-size:.88rem;overflow-x:auto;white-space:pre}
+.big{font-size:2.2rem;font-weight:800}
+.dots{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:12px 0 16px}
+.dot{width:20px;height:20px;border-radius:6px}
+.dot.ok{background:var(--good)}.dot.no{background:var(--bad)}
+.sug{background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:15px 18px;margin:0 auto 18px;max-width:560px;text-align:left;font-size:.95rem;line-height:1.6}
+.rev{border:1px solid var(--bd);border-radius:12px;padding:18px;margin-bottom:14px;background:#fff}
+.revq{font-size:.97rem;line-height:1.55;margin:8px 0;white-space:pre-wrap}
+.al{font-size:.9rem;margin:3px 0}
+.al code{background:#f1f5f9;padding:2px 7px;border-radius:6px;font-family:Consolas,monospace;font-size:.84rem}
+footer{text-align:center;color:var(--muted);font-size:.78rem;padding:16px;border-top:1px solid var(--bd)}
+</style>
+</head>
+<body>
+<div id="errbox"></div>
+
+<header>
+  <a class="loginbtn" href="/login-page.html">Login</a>
+  <button class="adminbtn" id="btnadmin" type="button">🔐 Admin</button>
+  <h1>🎯 DSE ICT Practice Platform</h1>
+  <p>2025+ syllabus — Python · SQL (multi-table joins) · Web Dev · Core &amp; Elective Algorithms · ICT Concepts</p>
+</header>
+
+<main>
+<!-- SETUP -->
+<section id="setup">
+  <div class="card">
+    <h2>Choose your practice set</h2>
+    <p class="sub" id="bankcount"></p>
+    <div class="tgrid">
+      <div class="tcard on" data-t="python"><div class="ic">🐍</div><div class="nm">Python</div><div class="ds">Loops · OOP · files · dicts</div></div>
+      <div class="tcard" data-t="sql"><div class="ic">🗄️</div><div class="nm">SQL &amp; Databases</div><div class="ds">Joins · GROUP BY · HAVING</div></div>
+      <div class="tcard" data-t="mastersql"><div class="ic">📘</div><div class="nm">Master SQL</div><div class="ds">DSE past-paper style · subqueries</div></div>
+      <div class="tcard" data-t="web"><div class="ic">🌐</div><div class="nm">Web App Dev</div><div class="ds">HTML · CSS · JS · sessions</div></div>
+      <div class="tcard" data-t="corealgo"><div class="ic">🧮</div><div class="nm">Core Algorithm</div><div class="ds">Paper 1B · pseudocode · trace</div></div>
+      <div class="tcard" data-t="algo"><div class="ic">⚙️</div><div class="nm">Algorithms (Elective C)</div><div class="ds">Sort · search · stack · Big-O</div></div>
+      <div class="tcard" data-t="theory"><div class="ic">🖥️</div><div class="nm">ICT Concepts</div><div class="ds">Data · networks · spreadsheets</div></div>
+      <div class="tcard" data-t="mixed"><div class="ic">🎲</div><div class="nm">Mixed</div><div class="ds">All 6 topics combined</div></div>
+    </div>
+    <div class="orow"><b>Difficulty</b>
+      <span class="pill g on" data-d="basic">Basic</span>
+      <span class="pill o" data-d="intermediate">Intermediate</span>
+      <span class="pill r" data-d="advanced">Advanced</span>
+    </div>
+    <div class="orow"><b>Questions</b>
+      <select id="qcount">
+        <option value="5">5 questions</option>
+        <option value="8" selected>8 questions</option>
+        <option value="10">10 questions</option>
+        <option value="999">All available</option>
+      </select>
+    </div>
+    <div class="orow"><b>Mode</b>
+      <span class="pill on" data-m="immediate">📖 Immediate feedback</span>
+      <span class="pill" data-m="exam">📝 Exam mode</span>
+    </div>
+    <p class="sub" id="bestline"></p>
+    <button class="btn bp" id="btnstart">▶ Start Practice</button>
+  </div>
+</section>
+
+<!-- QUIZ -->
+<section id="quiz" style="display:none">
+  <div class="card">
+    <div><span class="badge bpy" id="qtopic"></span><span class="badge b1" id="qdiff"></span><span id="counter"></span></div>
+    <div class="pwrap"><div id="pbar"></div></div>
+    <div id="qid" class="sub" style="font-weight:700;color:var(--pri);margin-bottom:8px"></div>
+    <div id="qtext"></div>
+    <pre class="code hide" id="qcode"></pre>
+    <pre class="code hide" id="qtable"></pre>
+    <div class="opts hide" id="qopts"></div>
+    <div id="qin" class="hide"><textarea id="uans" spellcheck="false"></textarea></div>
+    <div class="acts">
+      <button class="btn bp" id="btnsubmit">Submit Answer</button>
+      <button class="btn bs hide" id="btnretry">↻ Retry</button>
+      <button class="btn bp hide" id="btnnext">Next →</button>
+      <button class="btn bs" id="btnquit">✕ Quit</button>
+    </div>
+    <div id="fb" class="hide"></div>
+  </div>
+</section>
+
+<!-- RESULT -->
+<section id="result" style="display:none">
+  <div class="card center">
+    <h2>Practice Complete!</h2>
+    <p class="big" id="rpct">0%</p>
+    <p class="sub" id="rfrac"></p>
+    <div class="dots" id="rdots"></div>
+    <p id="rmsg" style="font-size:1.05rem;margin-bottom:12px"></p>
+    <div class="sug" id="rsug"></div>
+    <button class="btn bs" id="btnreview">📋 Review Answers</button>
+    <button class="btn bp" id="btnagain">🔄 Try Again</button>
+    <button class="btn bs" id="btnhome">🏠 Change Settings</button>
+  </div>
+</section>
+
+<!-- REVIEW -->
+<section id="review" style="display:none">
+  <div class="card">
+    <h2>📋 Answer Review &amp; Justifications</h2>
+    <p class="sub">Study each explanation — this is where marks are won.</p>
+    <button class="btn bs" id="btnback">← Back to results</button>
+  </div>
+  <div id="revlist"></div>
+</section>
+
+<!-- ADMIN -->
+<section id="admin" style="display:none">
+  <div class="card" id="admingate">
+    <h2>🔐 Admin Access</h2>
+    <p class="sub">Enter the administrator password to browse the full question bank (all answers &amp; justifications included).</p>
+    <input type="password" id="adminpw" class="tin" placeholder="Admin password" autocomplete="off">
+    <p id="adminerr" style="color:var(--bad);font-weight:600;min-height:1.3em"></p>
+    <button class="btn bp" id="btnunlock" type="button">Unlock</button>
+    <button class="btn bs" id="btnadmingateback" type="button">← Back</button>
+  </div>
+  <div class="card" id="adminpanel" style="display:none">
+    <h2>📚 Question Bank — Admin View</h2>
+    <p class="sub" id="adminstats"></p>
+    <input type="text" id="adminsearch" placeholder="🔍 Search questions, answers...">
+    <details style="margin:10px 0 4px">
+      <summary style="cursor:pointer;font-size:.9rem;color:var(--muted)">📋 Tables used by SQL questions (STUDENT · SUBJECT · ENROLMENT)</summary>
+      <pre class="code" id="admintable"></pre>
+    </details>
+    <div class="acts">
+      <button class="btn bs" id="btnadminback" type="button">← Back</button>
+      <button class="btn bs" id="btnlock" type="button">🔒 Lock again</button>
+    </div>
+  </div>
+  <div id="adminlist"></div>
+</section>
+</main>
+
+<footer>Aligned with the updated HKDSE ICT C&amp;A Guide (2025 exam onward): Core Part D — Computational Thinking &amp; Programming (48 hrs, Paper 1B) · Electives A Database / B Web Application Development / C Algorithms &amp; Programming (choose 2 of 3). Practice only — not affiliated with the HKEAA.</footer>
+
+<script src="question-bank.js"></script>
+<script>
+/* ---------- visible error reporting ---------- */
+function showErr(m){
+  var b=document.getElementById("errbox");
+  b.style.display="block";
+  b.textContent="⚠ Script problem: "+m+"  — please screenshot this and send it back.";
+}
+window.onerror=function(msg){ showErr(msg); return false; };
+
+/* ---------- safe storage ---------- */
+var storeOK=false;
+try{ localStorage.setItem("__t","1"); localStorage.removeItem("__t"); storeOK=true; }catch(e){}
+function saveBest(k,v){ if(storeOK){ try{ localStorage.setItem(k,String(v)); }catch(e){} } }
+function loadBest(k){ if(storeOK){ try{ return localStorage.getItem(k); }catch(e){} } return null; }
+
+/* ---------- helpers ---------- */
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function shuffle(a){ a=a.slice(); for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+function norm(s){ var p=(s||"").replace(/\r/g,"").split("\n"); var o=[]; for(var i=0;i<p.length;i++){ var t=p[i].trim(); if(t) o.push(t); } return o.join("\n"); }
+function flat(s){ return norm(s).replace(/\s+/g," "); }
+function squash(s){ return flat(s).replace(/ /g,""); }
+
+var TOPICS=["python","sql","mastersql","web","corealgo","algo","theory"];
+var TINFO={
+ python:{label:"Python",cls:"bpy"},
+ sql:{label:"SQL & Databases",cls:"bsq"},
+ mastersql:{label:"Master SQL",cls:"bwd"},
+ web:{label:"Web Development",cls:"bwd"},
+ corealgo:{label:"Core Algorithm",cls:"bcf"},
+ algo:{label:"Algorithms (Elective C)",cls:"bal"},
+ theory:{label:"ICT Concepts",cls:"bth"}
+};
+var DL={basic:"Basic",intermediate:"Intermediate",advanced:"Advanced"};
+var DORD=["basic","intermediate","advanced"];
+
+/* =====================================================================
+   TABLE SCHEMAS
+   STUDENT — single-table questions (unchanged data)
+   SUBJECT + ENROLMENT — added for multi-table (JOIN) questions.
+   ENROLMENT is a junction table resolving the many-to-many
+   relationship between STUDENT and SUBJECT.
+   Question property q.table:
+     true / "student"  → STUDENT only
+     "subject"         → SUBJECT only
+     "enrolment"       → ENROLMENT only
+     "se"              → STUDENT + ENROLMENT
+     "all"             → STUDENT + SUBJECT + ENROLMENT
+   ===================================================================== */
+var T_STUDENT="STUDENT\n+-----------+-------------+-------+-------+\n| StudentID | Name        | Class | Score |\n+-----------+-------------+-------+-------+\n| S01       | Peter Chan  | 6A    | 85    |\n| S02       | Mary Wong   | 6B    | 72    |\n| S03       | John Lee    | 6A    | 91    |\n| S04       | Amy Cheung  | 6C    | 68    |\n| S05       | Tom Wong    | 6B    | 78    |\n+-----------+-------------+-------+-------+";
+var T_SUBJECT="SUBJECT\n+-----------+-------------+---------+\n| SubjectID | SubjectName | Teacher |\n+-----------+-------------+---------+\n| ENG       | English     | Ms Lam  |\n| MATH      | Mathematics | Mr Fong |\n| ICT       | ICT         | Ms Ho   |\n| PHY       | Physics     | Mr Ng   |\n+-----------+-------------+---------+";
+var T_ENROLMENT="ENROLMENT\n+-----------+-----------+-------+\n| StudentID | SubjectID | Grade |\n+-----------+-----------+-------+\n| S01       | ENG       | B     |\n| S01       | ICT       | A     |\n| S02       | ENG       | C     |\n| S02       | MATH      | B     |\n| S03       | ICT       | A     |\n| S04       | MATH      | C     |\n| S05       | ICT       | B     |\n| S05       | PHY       | B     |\n+-----------+-----------+-------+";
+var TABLES={
+ student:T_STUDENT,
+ subject:T_SUBJECT,
+ enrolment:T_ENROLMENT,
+ se:T_STUDENT+"\n\n"+T_ENROLMENT,
+ all:T_STUDENT+"\n\n"+T_SUBJECT+"\n\n"+T_ENROLMENT
+};
+var TABLE=T_STUDENT; /* default shown for legacy table:true */
+
+/* =====================================================================
+   ADMIN PASSWORD — hash-verified (plaintext password is NOT in this file)
+   Two independent hash fingerprints must both match. To upgrade to real
+   SHA-256, generate a digest in the console and paste it into
+   ADMIN_SHA256_HEX (instructions in the comment below).
+   ===================================================================== */
+var ADMIN_HASH_POLY=31493;      /* poly hash (base 31, mod 100003) */
+var ADMIN_HASH_DJB2=3363566173; /* djb2 hash (mod 2^32)            */
+var ADMIN_SHA256_HEX="";        /* optional 64-char SHA-256 hex    */
+
+function hPoly(s){var h=0;for(var i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))%100003;}return h;}
+function hDjb2(s){var h=5381;for(var i=0;i<s.length;i++){h=(((h*33)+s.charCodeAt(i))>>>0);}return h>>>0;}
+
+function verifyAdminPw(pw,cb){
+  if(ADMIN_SHA256_HEX){
+    try{
+      if(!(window.crypto&&window.crypto.subtle&&window.TextEncoder)){cb(false);return;}
+      window.crypto.subtle.digest("SHA-256",new TextEncoder().encode(pw)).then(function(buf){
+        var a=new Uint8Array(buf),hex="";
+        for(var i=0;i<a.length;i++){hex+=("0"+a[i].toString(16)).slice(-2);}
+        cb(hex===ADMIN_SHA256_HEX.toLowerCase());
+      }).catch(function(){cb(false);});
+    }catch(e){cb(false);}
+  }else{
+    cb(hPoly(pw)===ADMIN_HASH_POLY&&hDjb2(pw)===ADMIN_HASH_DJB2);
+  }
+}
+
+/* =====================================================================
+   QUESTION BANK — 185 questions, aligned with the updated 2025+ syllabus
+   t: mc | out | sql
+   ===================================================================== */
+/* Question bank moved to question-bank.js */
+/* tag each question with its topic (for badges + mixed mode) */
+(function(){
+  for(var a=0;a<TOPICS.length;a++){
+    for(var b=0;b<DORD.length;b++){
+      var arr=BANK[TOPICS[a]][DORD[b]];
+      for(var c=0;c<arr.length;c++){ arr[c].tp=TOPICS[a]; }
+    }
+  }
+})();
+
+/* ---------- app state ---------- */
+var cur={topic:"python",diff:"basic",mode:"immediate",list:[],i:0,results:[],sel:null,done:false};
+var totalQ=0;
+(function(){ for(var a=0;a<TOPICS.length;a++){ for(var b=0;b<DORD.length;b++){ totalQ+=BANK[TOPICS[a]][DORD[b]].length; } } })();
+
+/* ---------- screens ---------- */
+var SCREENS=["setup","quiz","result","review","admin"];
+function show(id){ for(var i=0;i<SCREENS.length;i++){ $(SCREENS[i]).style.display=(SCREENS[i]===id)?"block":"none"; } window.scrollTo(0,0); }
+
+/* ---------- setup ---------- */
+function updateBest(){
+  var k="dseict_"+cur.topic+"_"+cur.diff;
+  var v=loadBest(k);
+  var name=(cur.topic==="mixed")?"Mixed":TINFO[cur.topic].label;
+  $("bestline").textContent = v ? ("🏆 Best score at "+DL[cur.diff]+" level in "+name+": "+v+"%") : "";
+}
+
+function bindSetup(){
+  var cards=document.querySelectorAll(".tcard");
+  for(var i=0;i<cards.length;i++){
+    cards[i].onclick=function(){
+      for(var j=0;j<cards.length;j++) cards[j].classList.remove("on");
+      this.classList.add("on");
+      cur.topic=this.getAttribute("data-t");
+      updateBest();
+    };
+  }
+  var dp=document.querySelectorAll("[data-d]");
+  for(var a=0;a<dp.length;a++){
+    dp[a].onclick=function(){
+      for(var j=0;j<dp.length;j++) dp[j].classList.remove("on");
+      this.classList.add("on");
+      cur.diff=this.getAttribute("data-d");
+      updateBest();
+    };
+  }
+  var mp=document.querySelectorAll("[data-m]");
+  for(var b=0;b<mp.length;b++){
+    mp[b].onclick=function(){
+      for(var j=0;j<mp.length;j++) mp[j].classList.remove("on");
+      this.classList.add("on");
+      cur.mode=this.getAttribute("data-m");
+    };
+  }
+}
+
+/* ---------- quiz flow ---------- */
+function startQuiz(){
+  var pool=[];
+  var topics=(cur.topic==="mixed")?TOPICS.slice():[cur.topic];
+  for(var i=0;i<topics.length;i++){
+    pool=pool.concat(BANK[topics[i]][cur.diff]);
+  }
+  pool=shuffle(pool);
+  var n=Math.min(parseInt($("qcount").value,10)||8, pool.length);
+  cur.list=pool.slice(0,n);
+  cur.i=0; cur.results=[]; cur.sel=null;
+  show("quiz");
+  renderQ();
+}
+
+function renderQ(){
+  var q=cur.list[cur.i];
+  cur.sel=null; cur.done=false;
+  var ti=TINFO[q.tp];
+  $("qtopic").textContent=ti.label;
+  $("qtopic").className="badge "+ti.cls;
+  $("qdiff").textContent=DL[cur.diff];
+  $("qdiff").className="badge "+(cur.diff==="basic"?"b1":cur.diff==="intermediate"?"b2":"b3");
+  $("counter").textContent="Q"+(cur.i+1)+" / "+cur.list.length;
+  $("pbar").style.width=(cur.i/cur.list.length*100)+"%";
+  $("qid").textContent=q.id ? ("Question ID: "+q.id) : "";
+
+  $("qtext").textContent=q.q;
+  if(q.code){ $("qcode").textContent=q.code; $("qcode").classList.remove("hide"); } else $("qcode").classList.add("hide");
+  if(q.table){
+    $("qtable").textContent=(typeof q.table==="string"&&TABLES[q.table])?TABLES[q.table]:TABLE;
+    $("qtable").classList.remove("hide");
+  } else $("qtable").classList.add("hide");
+
+  if(q.t==="mc"){
+    $("qopts").classList.remove("hide");
+    $("qin").classList.add("hide");
+    $("qopts").innerHTML="";
+    var opts=shuffle(q.opts);
+    for(var i=0;i<opts.length;i++){
+      var b=document.createElement("button");
+      b.type="button"; b.className="opt"; b.textContent=opts[i];
+      b.onclick=(function(btn){ return function(){
+        if(cur.done) return;
+        var all=$("qopts").children;
+        for(var j=0;j<all.length;j++) all[j].classList.remove("on");
+        btn.classList.add("on");
+        cur.sel=btn.textContent;
+      };})(b);
+      $("qopts").appendChild(b);
+    }
+  } else {
+    $("qopts").classList.add("hide");
+    $("qin").classList.remove("hide");
+    var ta=$("uans");
+    ta.value=""; ta.readOnly=false;
+    ta.placeholder=(q.t==="sql")?"e.g.  SELECT ... FROM ... JOIN ... ON ...;":"Type the exact answer here...";
+  }
+  $("fb").classList.add("hide"); $("fb").innerHTML="";
+  $("btnsubmit").classList.remove("hide");
+  $("btnnext").classList.add("hide");
+  $("btnretry").classList.add("hide");
+  $("btnsubmit").disabled=false;
+}
+
+/* ---------- evaluation ---------- */
+function evaluate(q,ua){
+  if(q.t==="mc") return {ok:ua===q.ans,missing:[]};
+  if(q.t==="out"){
+    var ok=(norm(ua)===norm(q.ans))||(flat(ua)===flat(q.ans))||(squash(ua)===squash(q.ans));
+    return {ok:ok,missing:[]};
+  }
+  if(q.tp==="mastersql" && q.id){
+    return {ok:false,missing:[],dbCheck:true};
+  }
+  var u=(ua||"").toLowerCase().replace(/\s+/g," ").trim();
+  var miss=[];
+  for(var i=0;i<q.keys.length;i++){ if(u.indexOf(q.keys[i])<0) miss.push(q.keys[i]); }
+  return {ok:miss.length===0,missing:miss};
+}
+
+function loadMasterSqlCache(qid){
+  return null;
+}
+
+function saveMasterSqlCache(qid, payload){
+  return;
+}
+
+async function checkMasterSqlViaServer(q,ua){
+  if(!q || !q.id || q.tp !== 'mastersql'){ return {ok:false,missing:[],message:'This is not a server-backed Master SQL question.'}; }
+  try{
+    var response=await fetch('/api/master-sql-check', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ questionId:q.id, sql:ua })
+    });
+    var contentType = (response.headers && response.headers.get) ? response.headers.get('content-type') : '';
+    var data = contentType && contentType.indexOf('application/json') >= 0 ? await response.json() : { error: 'Please log in to use the database checker.' };
+    if(!response.ok){
+      return {ok:false,missing:[],message:data && data.error ? data.error : 'Master SQL validation failed.'};
+    }
+    var payload={
+      sql:String(ua || '').trim(),
+      correct:Boolean(data.correct),
+      message:data.message || 'Master SQL check complete.',
+      expectedRows:data.expectedRows || [],
+      studentRows:data.studentRows || []
+    };
+    return {ok:payload.correct, missing:[], message:payload.message, data:data};
+  }catch(err){
+    return {ok:false,missing:[],message:'Could not reach the database checker. Please try again.'};
+  }
+}
+
+function justHTML(q){
+  var h='<div class="jb">';
+  h+="<h4>✔ Why this is the answer</h4><p>"+esc(q.why)+"</p>";
+  if(q.t==="sql"){
+    h+="<h4>📝 Sample answer</h4><div class='samp'>"+esc(q.sample)+"</div>";
+    h+="<p style='margin-top:8px;font-size:.84rem;color:var(--muted)'>Checked key parts: "+esc(q.keys.join(", "))+"</p>";
+  }
+  if(q.t==="out"){
+    h+="<h4>📝 Expected answer</h4><div class='samp'>"+esc(q.ans)+"</div>";
+  }
+  if(q.steps&&q.steps.length){
+    h+="<h4>🔍 Step by step</h4><ol>";
+    for(var i=0;i<q.steps.length;i++) h+="<li>"+esc(q.steps[i])+"</li>";
+    h+="</ol>";
+  }
+  if(q.wrong&&q.wrong.length){
+    h+="<h4>⚠️ Common mistakes</h4><ul>";
+    for(var j=0;j<q.wrong.length;j++) h+="<li>"+esc(q.wrong[j])+"</li>";
+    h+="</ul>";
+  }
+  if(q.tip) h+="<div class='tip'>💡 <b>Exam tip:</b> "+esc(q.tip)+"</div>";
+  h+="</div>";
+  return h;
+}
+
+function renderMasterSqlTable(rows, title){
+  if(!rows || !rows.length){
+    return '<div class="fbm"><strong>'+esc(title)+':</strong> No rows returned.</div>';
+  }
+  var columns=Object.keys(rows[0]);
+  var html='<div class="fbm" style="margin-top:12px"><strong>'+esc(title)+':</strong></div>'+
+    '<div style="overflow:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;background:#fff;table-layout:fixed">'+
+    '<thead><tr>';
+  for(var i=0;i<columns.length;i++) html+='<th style="padding:8px 10px;border:1px solid #e2e8f0;background:#f8fafc;text-align:left;word-wrap:break-word">'+esc(columns[i])+'</th>';
+  html+='</tr></thead><tbody>';
+  for(var r=0;r<rows.length;r++){
+    html+='<tr>';
+    for(var c=0;c<columns.length;c++){
+      var val=rows[r][columns[c]];
+      html+='<td style="padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;word-wrap:break-word">'+esc(val===null || typeof val==='undefined' ? 'NULL' : String(val))+'</td>';
+    }
+    html+='</tr>';
+  }
+  html+='</tbody></table></div>';
+  return html;
+}
+
+async function submitAnswer(){
+  if(cur.done) return;
+  var q=cur.list[cur.i], ua="";
+  if(q.t==="mc"){
+    if(cur.sel===null){ flashMsg("Please select an option first."); return; }
+    ua=cur.sel;
+  } else {
+    ua=$("uans").value;
+    if(!ua.trim()){ flashMsg("Please type your answer first."); return; }
+  }
+
+  var ev = {ok:false,missing:[],message:''};
+  var serverData = null;
+  if(q.tp === 'mastersql' && q.id){
+    var dbResult = await checkMasterSqlViaServer(q, ua);
+    ev.ok = dbResult.ok;
+    ev.missing = dbResult.missing || [];
+    ev.message = dbResult.message || '';
+    serverData = dbResult.data || null;
+  } else {
+    ev = evaluate(q,ua);
+  }
+
+  cur.results.push({q:q,ua:ua,ok:ev.ok});
+  cur.done=true;
+  $("btnsubmit").disabled=true;
+  $("pbar").style.width=((cur.i+1)/cur.list.length*100)+"%";
+
+  if(cur.mode==="immediate"){
+    if(q.t==="mc"){
+      var all=$("qopts").children;
+      for(var i=0;i<all.length;i++){
+        all[i].disabled=true;
+        if(all[i].textContent===q.ans) all[i].classList.add("cr");
+        else if(all[i].classList.contains("on")) all[i].classList.add("wr");
+      }
+    } else {
+      $("uans").readOnly=true;
+    }
+    var h='<div class="fbb '+(ev.ok?"ok":"no")+'">'+(ev.ok?"✔ Correct!":"✘ Incorrect")+"</div>";
+    if(q.tp === 'mastersql' && ev.message){
+      h+='<div class="fbm">'+esc(ev.message)+"</div>";
+    } else if(!ev.ok&&ev.missing.length){
+      h+='<div class="fbm">Your answer is missing: <b>'+esc(ev.missing.join(", "))+"</b></div>";
+    }
+    if(q.tp === 'mastersql' && serverData){
+      h+=renderMasterSqlTable(serverData.studentRows || [], 'Your query result');
+      h+=renderMasterSqlTable(serverData.expectedRows || [], 'Expected result');
+    }
+    h+=justHTML(q);
+    $("fb").innerHTML=h;
+    $("fb").classList.remove("hide");
+    $("btnsubmit").classList.add("hide");
+    if(ev.ok){
+      $("btnnext").classList.remove("hide");
+      $("btnretry").classList.add("hide");
+    }else{
+      $("btnnext").classList.add("hide");
+      if(q.tp === 'mastersql'){ $("btnretry").classList.remove("hide"); }
+    }
+  } else {
+    $("btnsubmit").classList.add("hide");
+    setTimeout(nextQ,300);
+  }
+}
+
+function flashMsg(m){
+  $("fb").innerHTML='<div class="fbm">'+esc(m)+"</div>";
+  $("fb").classList.remove("hide");
+  setTimeout(function(){ if(!cur.done) $("fb").classList.add("hide"); },1500);
+}
+
+function retryAnswer(){
+  var q=cur.list[cur.i];
+  if(!q) return;
+  cur.done=false;
+  $("fb").classList.add("hide");
+  $("fb").innerHTML="";
+  $("btnretry").classList.add("hide");
+  $("btnsubmit").classList.remove("hide");
+  $("btnsubmit").disabled=false;
+  $("btnnext").classList.add("hide");
+  if(q.t!=="mc"){
+    $("uans").readOnly=false;
+    $("uans").value="";
+    $("uans").focus();
+  } else {
+    var all=$("qopts").children;
+    for(var i=0;i<all.length;i++){
+      all[i].disabled=false;
+      all[i].classList.remove("on","cr","wr");
+    }
+    cur.sel=null;
+  }
+}
+
+function nextQ(){
+  cur.i++;
+  if(cur.i>=cur.list.length) finish();
+  else renderQ();
+}
+
+/* ---------- results ---------- */
+function finish(){
+  var total=cur.results.length, ok=0;
+  for(var i=0;i<total;i++){ if(cur.results[i].ok) ok++; }
+  var pct=total?Math.round(ok/total*100):0;
+
+  var k="dseict_"+cur.topic+"_"+cur.diff;
+  var prev=parseInt(loadBest(k)||"0",10);
+  if(pct>prev) saveBest(k,pct);
+
+  $("rpct").textContent=pct+"%";
+  $("rpct").style.color=pct>=80?"var(--good)":pct>=50?"var(--warn)":"var(--bad)";
+  $("rfrac").textContent=ok+" correct out of "+total;
+  $("rmsg").textContent=
+    pct===100?"🏆 Perfect score! Outstanding.":
+    pct>=80?"🎉 Excellent performance!":
+    pct>=50?"👍 Good effort — keep going.":
+    "💪 Review the justifications, then try again.";
+
+  var dots=$("rdots"); dots.innerHTML="";
+  for(var j=0;j<total;j++){
+    var d=document.createElement("span");
+    d.className="dot "+(cur.results[j].ok?"ok":"no");
+    d.title="Question "+(j+1);
+    dots.appendChild(d);
+  }
+
+  var di=DORD.indexOf(cur.diff);
+  var sug=$("rsug");
+  sug.innerHTML="";
+  var p=document.createElement("p");
+  if(pct>=80&&di<2){
+    var nxt=DORD[di+1];
+    p.innerHTML="Excellent! <b>"+pct+"%</b> at <b>"+DL[cur.diff]+"</b> level — you're ready to move up.";
+    sug.appendChild(p);
+    var b=document.createElement("button");
+    b.className="btn bp"; b.textContent="⬆ Practice "+DL[nxt]+" now";
+    b.onclick=function(){ setDiff(nxt); startQuiz(); };
+    sug.appendChild(b);
+  } else if(pct>=80){
+    p.innerHTML="Outstanding — you've mastered the hardest level. Re-read the exam tips to secure a 5**.";
+    sug.appendChild(p);
+  } else if(pct>=50){
+    p.innerHTML="A solid <b>"+pct+"%</b> at <b>"+DL[cur.diff]+"</b> level. Stay at this level and study every justification.";
+    sug.appendChild(p);
+  } else {
+    var lower=DORD[Math.max(0,di-1)];
+    p.innerHTML="With <b>"+pct+"%</b> at <b>"+DL[cur.diff]+"</b> level, consolidate foundations first.";
+    sug.appendChild(p);
+    var b2=document.createElement("button");
+    b2.className="btn bp"; b2.textContent="⬇ Practice "+DL[lower]+" now";
+    b2.onclick=function(){ setDiff(lower); startQuiz(); };
+    sug.appendChild(b2);
+  }
+  show("result");
+}
+
+function setDiff(d){
+  cur.diff=d;
+  var dp=document.querySelectorAll("[data-d]");
+  for(var i=0;i<dp.length;i++){ dp[i].classList.toggle("on", dp[i].getAttribute("data-d")===d); }
+  updateBest();
+}
+
+/* ---------- review ---------- */
+function renderReview(){
+  var list=$("revlist"); list.innerHTML="";
+  for(var i=0;i<cur.results.length;i++){
+    var r=cur.results[i], q=r.q;
+    var div=document.createElement("div");
+    div.className="rev";
+    var h='<div><span style="font-weight:800;color:'+(r.ok?"var(--good)":"var(--bad)")+'">'+(r.ok?"✔ Correct":"✘ Incorrect")+"</span> "+
+      '<span class="badge '+TINFO[q.tp].cls+'">'+TINFO[q.tp].label+"</span>"+
+      '<span class="badge '+(cur.diff==="basic"?"b1":cur.diff==="intermediate"?"b2":"b3")+'">'+DL[cur.diff]+"</span></div>";
+    h+='<div class="revq"><b>Q'+(i+1)+'.</b> '+esc(q.q)+"</div>";
+    h+='<div class="al"><b>ID:</b> <code>'+esc(q.id || "—")+"</code></div>";
+    if(q.code) h+='<pre class="code">'+esc(q.code)+"</pre>";
+    h+='<div class="al">Your answer: <code>'+esc(r.ua||"(blank)")+"</code></div>";
+    if(q.t==="mc") h+='<div class="al">Correct answer: <code>'+esc(q.ans)+"</code></div>";
+    h+=justHTML(q);
+    div.innerHTML=h;
+    list.appendChild(div);
+  }
+  show("review");
+}
+
+/* ---------- admin panel ---------- */
+var adminUnlocked=false, failCount=0, lockUntil=0;
+
+function buildStats(){
+  var parts=[];
+  for(var a=0;a<TOPICS.length;a++){
+    var n=0;
+    for(var b=0;b<DORD.length;b++){ n+=BANK[TOPICS[a]][DORD[b]].length; }
+    parts.push(TINFO[TOPICS[a]].label+" "+n);
+  }
+  return "Total "+totalQ+" questions — "+parts.join(" · ");
+}
+
+function openAdmin(){
+  if(adminUnlocked){
+    $("admingate").style.display="none";
+    $("adminpanel").style.display="block";
+    $("adminstats").textContent=buildStats();
+    renderAdmin();
+  }else{
+    $("admingate").style.display="block";
+    $("adminpanel").style.display="none";
+    $("adminpw").value="";
+    $("adminerr").textContent="";
+    setTimeout(function(){ try{ $("adminpw").focus(); }catch(e){} },60);
+  }
+  show("admin");
+}
+
+function tryUnlock(){
+  var now=Date.now();
+  if(now<lockUntil){
+    $("adminerr").textContent="Too many failed attempts — wait "+Math.ceil((lockUntil-now)/1000)+"s.";
+    return;
+  }
+  var pw=$("adminpw").value;
+  if(!pw){ $("adminerr").textContent="Please enter the password."; return; }
+  verifyAdminPw(pw,function(ok){
+    if(ok){
+      adminUnlocked=true; failCount=0;
+      $("adminerr").textContent="";
+      openAdmin();
+    }else{
+      failCount++;
+      if(failCount>=5){
+        lockUntil=Date.now()+30000;
+        $("adminerr").textContent="✘ Wrong password — locked for 30 seconds.";
+      }else{
+        $("adminerr").textContent="✘ Wrong password (attempt "+failCount+" of 5).";
+      }
+    }
+  });
+}
+
+function renderAdmin(){
+  var list=$("adminlist");
+  list.innerHTML="";
+  var search=($("adminsearch").value||"").toLowerCase();
+  var shown=0;
+  for(var a=0;a<TOPICS.length;a++){
+    for(var b=0;b<DORD.length;b++){
+      var t=TOPICS[a], d=DORD[b];
+      var src=BANK[t][d], arr=[];
+      for(var k=0;k<src.length;k++){
+        var qq=src[k];
+        if(search){
+          var hay=(qq.q+" "+(qq.ans||"")+" "+(qq.sample||"")).toLowerCase();
+          if(hay.indexOf(search)<0) continue;
+        }
+        arr.push(qq);
+      }
+      if(!arr.length) continue;
+      var gh=document.createElement("div");
+      gh.className="agroup";
+      gh.innerHTML='<span class="badge '+TINFO[t].cls+'">'+TINFO[t].label+'</span>'
+        +'<span class="badge '+(d==="basic"?"b1":d==="intermediate"?"b2":"b3")+'">'+DL[d]+'</span>'
+        +'<b style="color:var(--muted);font-size:.85rem">'+arr.length+' question(s)</b>';
+      list.appendChild(gh);
+      for(var c=0;c<arr.length;c++){
+        var q=arr[c]; shown++;
+        var div=document.createElement("div");
+        div.className="rev";
+        var h='<div><span class="badge '+TINFO[t].cls+'">'+TINFO[t].label+'</span>'
+          +'<span class="badge '+(d==="basic"?"b1":d==="intermediate"?"b2":"b3")+'">'+DL[d]+'</span>'
+          +'<span style="color:var(--muted);font-size:.78rem">#'+shown+'</span></div>';
+        h+='<div class="revq">'+esc(q.q)+'</div>';
+        h+='<div class="al"><b>ID:</b> <code>'+esc(q.id || "—")+'</code></div>';
+        if(q.code) h+='<pre class="code">'+esc(q.code)+'</pre>';
+        if(q.t==="mc"){
+          for(var o=0;o<q.opts.length;o++){
+            h+='<div class="al">'+(q.opts[o]===q.ans?"✅":"▫️")+' '+esc(q.opts[o])+'</div>';
+          }
+          h+='<div class="al"><b>Correct answer:</b> <code>'+esc(q.ans)+'</code></div>';
+        }else if(q.t==="sql"){
+          h+='<div class="al"><b>Sample answer:</b></div><div class="samp">'+esc(q.sample)+'</div>';
+        }else{
+          h+='<div class="al"><b>Answer:</b></div><div class="samp">'+esc(q.ans)+'</div>';
+        }
+        h+=justHTML(q);
+        div.innerHTML=h;
+        list.appendChild(div);
+      }
+    }
+  }
+  if(!shown) list.innerHTML='<div class="card"><p class="sub">No questions match your search.</p></div>';
+}
+
+/* ---------- wire everything ---------- */
+try{
+  $("bankcount").textContent="📚 "+totalQ+" questions aligned with the 2025+ HKDSE ICT syllabus — every one with step-by-step justification.";
+  bindSetup();
+  updateBest();
+  $("btnstart").onclick=startQuiz;
+  $("btnsubmit").onclick=submitAnswer;
+  $("btnretry").onclick=retryAnswer;
+  $("btnnext").onclick=nextQ;
+  $("btnquit").onclick=function(){ show("setup"); updateBest(); };
+  $("btnagain").onclick=startQuiz;
+  $("btnhome").onclick=function(){ show("setup"); updateBest(); };
+  $("btnreview").onclick=renderReview;
+  $("btnback").onclick=function(){ show("result"); };
+  /* admin wiring */
+  $("btnadmin").onclick=openAdmin;
+  $("btnunlock").onclick=tryUnlock;
+  $("btnadmingateback").onclick=function(){ show("setup"); };
+  $("btnadminback").onclick=function(){ show("setup"); };
+  $("btnlock").onclick=function(){ adminUnlocked=false; failCount=0; show("setup"); };
+  $("adminsearch").addEventListener("input",renderAdmin);
+  $("adminpw").addEventListener("keydown",function(e){
+    if(e.key==="Enter"){ e.preventDefault(); tryUnlock(); }
+  });
+  $("admintable").textContent=TABLES.all;
+  document.addEventListener("keydown",function(e){
+    if(e.key!=="Enter") return;
+    if(e.target&&e.target.tagName==="TEXTAREA") return;
+    if($("quiz").style.display!=="none"){
+      if(!$("btnsubmit").classList.contains("hide")&&!$("btnsubmit").disabled) submitAnswer();
+      else if(!$("btnnext").classList.contains("hide")) nextQ();
+    }
+  });
+}catch(e){ showErr(e.message); }
+</script>
+</body>
+</html>

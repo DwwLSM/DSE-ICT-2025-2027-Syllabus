@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQL Practice Lab</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        color: #1f2937;
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 30px auto;
+        padding: 20px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        padding: 24px;
+        margin-bottom: 24px;
+      }
+      h1 { margin-top: 0; }
+      textarea {
+        width: 100%;
+        min-height: 180px;
+        resize: vertical;
+        padding: 14px;
+        font-size: 15px;
+        font-family: Consolas, monospace;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+      }
+      button {
+        margin-top: 14px;
+        background: #4f46e5;
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        padding: 12px 18px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      select {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        font-size: 15px;
+        margin-top: 10px;
+        margin-bottom: 8px;
+      }
+      .meta {
+        margin: 14px 0 10px;
+        color: #475569;
+        font-size: 14px;
+      }
+      .error {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: #fef2f2;
+        color: #991b1b;
+        display: none;
+      }
+      .error.show { display: block; }
+      .result {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+      }
+      th, td {
+        border: 1px solid #e2e8f0;
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #eef2ff;
+      }
+      .top-links {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      a { color: #4f46e5; text-decoration: none; font-weight: 600; }
+      code {
+        background: #f1f5f9;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>SQL Practice Lab</h1>
+        <p>Run SELECT queries against the student database for practice.</p>
+        <div class="top-links">
+          <a href="/dashboard">Dashboard</a>
+          <a href="/">Home</a>
+          <a href="/logout">Logout</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Database tables</h2>
+        <div class="meta">
+          <code>Student</code> · <code>Subject</code> · <code>Enrolment</code>
+        </div>
+        <textarea id="sqlInput">SELECT Name, Class, Score
+FROM Student
+ORDER BY Score DESC;</textarea>
+        <button type="button" id="runSqlBtn">Run SQL</button>
+        <div id="errorBox" class="error"></div>
+      </div>
+
+      <div class="card">
+        <h2>Master SQL challenge</h2>
+        <label for="questionSelect" style="display:block;margin-bottom:8px;font-weight:700;">Choose a question</label>
+        <select id="questionSelect"></select>
+        <div id="masterQuestionDescription" class="meta"></div>
+        <button type="button" id="checkMasterSqlBtn">Check Master SQL Answer</button>
+        <div id="masterResultBox" class="meta"></div>
+      </div>
+
+      <div class="card result">
+        <h2>Query result</h2>
+        <div id="resultBox">No query run yet.</div>
+      </div>
+    </div>
+
+    <script src="question-bank.js"></script>
+    <script>
+      const sqlInput = document.getElementById('sqlInput');
+      const runSqlBtn = document.getElementById('runSqlBtn');
+      const resultBox = document.getElementById('resultBox');
+      const errorBox = document.getElementById('errorBox');
+      const questionSelect = document.getElementById('questionSelect');
+      const masterQuestionDescription = document.getElementById('masterQuestionDescription');
+      const checkMasterSqlBtn = document.getElementById('checkMasterSqlBtn');
+      const masterResultBox = document.getElementById('masterResultBox');
+
+      const masterQuestionMap = {};
+      const masterQuestionList = [];
+
+      if (window.BANK && BANK.mastersql) {
+        const masterEntries = [].concat(
+          BANK.mastersql.basic || [],
+          BANK.mastersql.intermediate || [],
+          BANK.mastersql.advanced || [],
+          BANK.mastersql.mutation || []
+        );
+
+        masterEntries.forEach(function(item) {
+          const questionId = item.id || 'master-sql-' + String(masterQuestionList.length + 1).padStart(2, '0');
+          masterQuestionMap[questionId] = {
+            description: item.q,
+            sampleSql: item.sample || ''
+          };
+          masterQuestionList.push({
+            id: questionId,
+            label: questionId + ' — ' + item.q
+          });
+        });
+      }
+
+      questionSelect.innerHTML = masterQuestionList.map(function(item) {
+        return '<option value="' + item.id + '">' + item.label + '</option>';
+      }).join('');
+
+      function updateMasterQuestion() {
+        const selected = questionSelect.value;
+        const question = masterQuestionMap[selected];
+        if (question) {
+          masterQuestionDescription.textContent = question.description;
+          sqlInput.value = question.sampleSql;
+        }
+      }
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.classList.add('show');
+      }
+
+      function clearError() {
+        errorBox.textContent = '';
+        errorBox.classList.remove('show');
+      }
+
+      function renderTable(rows, columns) {
+        const header = columns.map(col => `<th>${col}</th>`).join('');
+        const rowsHtml = rows.map(row => {
+          const cells = columns.map(col => `<td>${row[col] ?? ''}</td>`).join('');
+          return `<tr>${cells}</tr>`;
+        }).join('');
+
+        return `
+          <table>
+            <thead><tr>${header}</tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        `;
+      }
+
+      async function runSql() {
+        const sql = sqlInput.value.trim();
+        if (!sql) {
+          showError('Please enter a SQL query.');
+          return;
+        }
+
+        clearError();
+        resultBox.textContent = 'Running...';
+
+        try {
+          const response = await fetch('/api/sql-practice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sql })
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            showError(data.error || 'Query failed.');
+            resultBox.textContent = 'No valid result.';
+            return;
+          }
+
+          if (!data.rows || !data.rows.length) {
+            resultBox.innerHTML = '<p>No rows returned.</p>';
+            return;
+          }
+
+          const columns = data.columns || Object.keys(data.rows[0]);
+          resultBox.innerHTML = `
+            <p><strong>Rows returned:</strong> ${data.rowCount}</p>
+            ${renderTable(data.rows, columns)}
+          `;
+        } catch (err) {
+          showError('Could not connect to the SQL lab server.');
+          resultBox.textContent = 'No valid result.';
+        }
+      }
+
+      async function checkMasterSql() {
+        const sql = sqlInput.value.trim();
+        const questionId = questionSelect.value;
+        if (!sql) {
+          showError('Please enter a SQL query for the Master SQL challenge.');
+          return;
+        }
+
+        clearError();
+        masterResultBox.textContent = 'Checking...';
+
+        try {
+          const response = await fetch('/api/master-sql-check', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ questionId, sql })
+          });
+
+          const contentType = response.headers && response.headers.get ? response.headers.get('content-type') : '';
+          const data = contentType && contentType.indexOf('application/json') >= 0 ? await response.json() : { error: 'Please log in to use the database checker.' };
+          if (!response.ok) {
+            showError(data.error || 'Master SQL check failed.');
+            masterResultBox.textContent = 'No result yet.';
+            return;
+          }
+
+          masterResultBox.innerHTML = `
+            <p><strong>${data.correct ? 'Correct' : 'Incorrect'}</strong> — ${data.message}</p>
+            <p><strong>Student output:</strong></p>
+            ${data.studentRows && data.studentRows.length ? renderTable(data.studentRows, Object.keys(data.studentRows[0])) : '<p>No rows returned.</p>'}
+            <p><strong>Expected output:</strong></p>
+            ${data.expectedRows && data.expectedRows.length ? renderTable(data.expectedRows, Object.keys(data.expectedRows[0])) : '<p>No rows returned.</p>'}
+          `;
+        } catch (err) {
+          showError('Could not verify the Master SQL answer.');
+          masterResultBox.textContent = 'No valid result.';
+        }
+      }
+
+      questionSelect.addEventListener('change', updateMasterQuestion);
+      runSqlBtn.addEventListener('click', runSql);
+      checkMasterSqlBtn.addEventListener('click', checkMasterSql);
+      updateMasterQuestion();
+    </script>
+  </body>
+</html>

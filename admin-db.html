@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Database Viewer</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 32px 20px 48px;
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        color: #1f2937;
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        padding: 20px 24px;
+      }
+      h1, h2, h3 {
+        margin-top: 0;
+      }
+      a {
+        color: #4f46e5;
+        text-decoration: none;
+      }
+      .section {
+        margin-top: 28px;
+      }
+      .table-wrap {
+        overflow: auto;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        background: #fff;
+        margin-top: 10px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 360px;
+      }
+      th, td {
+        padding: 8px 10px;
+        border: 1px solid #e2e8f0;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f8fafc;
+      }
+      .empty {
+        color: #475569;
+        margin-top: 8px;
+      }
+      .loading {
+        color: #475569;
+        font-weight: 600;
+      }
+      .sql-box {
+        margin-top: 24px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 24px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 120px;
+        box-sizing: border-box;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        font: 14px/1.5 monospace;
+        resize: vertical;
+      }
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 12px 0 14px;
+      }
+      select, button {
+        font: inherit;
+      }
+      select {
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+      }
+      button {
+        background: #4f46e5;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 9px 16px;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      button:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+      .result-box {
+        margin-top: 18px;
+      }
+      .error {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="topbar">
+        <h1>Admin Database Viewer</h1>
+        <div>
+          <a href="/dashboard">Dashboard</a> |
+          <a href="/logout">Logout</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div id="db-content" class="loading">Loading database tables...</div>
+
+        <div class="sql-box">
+          <h2>Run SQL</h2>
+          <div class="toolbar">
+            <label for="db-select">Database:</label>
+            <select id="db-select">
+              <option value="practice">student_practice.db</option>
+              <option value="app">app.db</option>
+            </select>
+            <button id="run-sql-btn" type="button">Run SQL</button>
+          </div>
+          <textarea id="admin-sql" placeholder="SELECT * FROM Student;">SELECT * FROM Student;</textarea>
+          <div id="sql-result" class="result-box"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function loadDatabaseData() {
+        const container = document.getElementById('db-content');
+        try {
+          const response = await fetch('/api/admin-db-data', {
+            credentials: 'same-origin'
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || 'Unable to load database data.');
+          }
+
+          const sections = await response.json();
+          if (!Array.isArray(sections) || !sections.length) {
+            container.innerHTML = '<p class="empty">No database data found.</p>';
+            return;
+          }
+
+          container.innerHTML = sections.map((section) => {
+            const tablesHtml = (section.tables || []).map((table) => {
+              if (!table.rows || !table.rows.length) {
+                return `
+                  <div class="section">
+                    <h3>${table.name}</h3>
+                    <p class="empty">No rows found.</p>
+                  </div>
+                `;
+              }
+
+              const columns = Object.keys(table.rows[0]);
+              const header = columns.map((col) => `<th>${col}</th>`).join('');
+              const rows = table.rows.map((row) => {
+                const cells = columns.map((col) => `<td>${row[col] === null || typeof row[col] === 'undefined' ? 'NULL' : String(row[col])}</td>`).join('');
+                return `<tr>${cells}</tr>`;
+              }).join('');
+
+              return `
+                <div class="section">
+                  <h3>${table.name}</h3>
+                  <div class="table-wrap">
+                    <table>
+                      <thead><tr>${header}</tr></thead>
+                      <tbody>${rows}</tbody>
+                    </table>
+                  </div>
+                </div>
+              `;
+            }).join('');
+
+            return `
+              <section>
+                <h2>${section.label}</h2>
+                ${tablesHtml}
+              </section>
+            `;
+          }).join('');
+        } catch (error) {
+          container.innerHTML = `<p style="color:#b91c1c;">${error.message}</p>`;
+        }
+      }
+
+      async function runAdminSql() {
+        const sql = document.getElementById('admin-sql').value;
+        const databaseName = document.getElementById('db-select').value;
+        const resultBox = document.getElementById('sql-result');
+        const button = document.getElementById('run-sql-btn');
+
+        if (!sql.trim()) {
+          resultBox.innerHTML = '<p class="error">Please enter a SQL query.</p>';
+          return;
+        }
+
+        button.disabled = true;
+        resultBox.innerHTML = '<p class="loading">Running SQL...</p>';
+
+        try {
+          const response = await fetch('/api/admin-run-sql', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sql, database: databaseName })
+          });
+
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.error || 'Query failed.');
+          }
+
+          if (!data.rows || !data.rows.length) {
+            resultBox.innerHTML = `<p><strong>${data.database}</strong> query returned 0 rows.</p>`;
+            return;
+          }
+
+          const columns = data.columns || Object.keys(data.rows[0]);
+          const header = columns.map((col) => `<th>${col}</th>`).join('');
+          const rows = data.rows.map((row) => {
+            const cells = columns.map((col) => `<td>${row[col] === null || typeof row[col] === 'undefined' ? 'NULL' : String(row[col])}</td>`).join('');
+            return `<tr>${cells}</tr>`;
+          }).join('');
+
+          resultBox.innerHTML = `
+            <div class="section">
+              <h3>Query result (${data.database})</h3>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr>${header}</tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+            </div>
+          `;
+        } catch (error) {
+          resultBox.innerHTML = `<p class="error">${error.message}</p>`;
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      document.getElementById('run-sql-btn').addEventListener('click', runAdminSql);
+      loadDatabaseData();
+    </script>
+  </body>
+</html>
