@@ -152,6 +152,16 @@
     </div>
 
     <script>
+      function escapeHtml(value) {
+        return String(value === null || typeof value === 'undefined' ? '' : value).replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        })[character]);
+      }
+
       async function loadDatabaseData() {
         const container = document.getElementById('db-content');
         try {
@@ -181,15 +191,15 @@
               }
 
               const columns = Object.keys(table.rows[0]);
-              const header = columns.map((col) => `<th>${col}</th>`).join('');
+              const header = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join('');
               const rows = table.rows.map((row) => {
-                const cells = columns.map((col) => `<td>${row[col] === null || typeof row[col] === 'undefined' ? 'NULL' : String(row[col])}</td>`).join('');
+                const cells = columns.map((col) => `<td>${escapeHtml(row[col] === null || typeof row[col] === 'undefined' ? 'NULL' : row[col])}</td>`).join('');
                 return `<tr>${cells}</tr>`;
               }).join('');
 
               return `
                 <div class="section">
-                  <h3>${table.name}</h3>
+                  <h3>${escapeHtml(table.name)}</h3>
                   <div class="table-wrap">
                     <table>
                       <thead><tr>${header}</tr></thead>
@@ -202,7 +212,7 @@
 
             return `
               <section>
-                <h2>${section.label}</h2>
+                <h2>${escapeHtml(section.label)}</h2>
                 ${tablesHtml}
               </section>
             `;
@@ -245,15 +255,15 @@
           }
 
           const columns = data.columns || Object.keys(data.rows[0]);
-          const header = columns.map((col) => `<th>${col}</th>`).join('');
+          const header = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join('');
           const rows = data.rows.map((row) => {
-            const cells = columns.map((col) => `<td>${row[col] === null || typeof row[col] === 'undefined' ? 'NULL' : String(row[col])}</td>`).join('');
+            const cells = columns.map((col) => `<td>${escapeHtml(row[col] === null || typeof row[col] === 'undefined' ? 'NULL' : row[col])}</td>`).join('');
             return `<tr>${cells}</tr>`;
           }).join('');
 
           resultBox.innerHTML = `
             <div class="section">
-              <h3>Query result (${data.database})</h3>
+              <h3>Query result (${escapeHtml(data.database)})</h3>
               <div class="table-wrap">
                 <table>
                   <thead><tr>${header}</tr></thead>

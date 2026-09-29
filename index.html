@@ -14,8 +14,16 @@ header{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:26p
 header h1{font-size:1.6rem}header p{opacity:.9;margin-top:6px;font-size:.95rem}
 .loginbtn{position:absolute;top:16px;right:120px;background:#fff;color:#4f46e5;border:none;padding:8px 16px;border-radius:999px;cursor:pointer;font-size:.85rem;font-weight:700;transition:.15s;text-decoration:none;display:inline-block}
 .loginbtn:hover{background:#eef2ff}
+.dashboardbtn{position:absolute;top:16px;right:210px;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.55);padding:7px 15px;border-radius:999px;cursor:pointer;font-size:.85rem;font-weight:600;transition:.15s;text-decoration:none;display:inline-block}
+.dashboardbtn:hover{background:rgba(255,255,255,.28)}
 .adminbtn{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.55);color:#fff;padding:7px 15px;border-radius:999px;cursor:pointer;font-size:.85rem;font-weight:600;transition:.15s}
 .adminbtn:hover{background:rgba(255,255,255,.28)}
+@media(max-width:560px){
+header{padding-top:60px}
+.dashboardbtn{top:12px;left:12px;right:auto}
+.loginbtn{top:12px;right:100px}
+.adminbtn{top:12px;right:12px}
+}
 main{max-width:900px;margin:0 auto;padding:26px 16px 60px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:24px;box-shadow:0 2px 10px rgba(15,23,42,.06);margin-bottom:16px}
 h2{font-size:1.2rem;margin-bottom:6px}
@@ -89,6 +97,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;padding:16px;border
 <div id="errbox"></div>
 
 <header>
+  <a class="dashboardbtn" href="/dashboard">Dashboard</a>
   <a class="loginbtn" href="/login-page.html">Login</a>
   <button class="adminbtn" id="btnadmin" type="button">🔐 Admin</button>
   <h1>🎯 DSE ICT Practice Platform</h1>
@@ -208,7 +217,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;padding:16px;border
 
 <footer>Aligned with the updated HKDSE ICT C&amp;A Guide (2025 exam onward): Core Part D — Computational Thinking &amp; Programming (48 hrs, Paper 1B) · Electives A Database / B Web Application Development / C Algorithms &amp; Programming (choose 2 of 3). Practice only — not affiliated with the HKEAA.</footer>
 
-<script src="question-bank.js"></script>
+<script src="sql/question-bank.js"></script>
 <script>
 /* ---------- visible error reporting ---------- */
 function showErr(m){
@@ -444,6 +453,23 @@ function loadMasterSqlCache(qid){
   return null;
 }
 
+async function saveQuestionProgress(q,isCorrect){
+  if(!q || !q.id) return;
+  try{
+    var response=await fetch('/api/question-progress', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({questionId:q.id,isCorrect:Boolean(isCorrect)})
+    });
+    if(!response.ok && response.status!==401){
+      console.warn('Could not save question progress.');
+    }
+  }catch(error){
+    console.warn('Could not save question progress.',error);
+  }
+}
+
 function saveMasterSqlCache(qid, payload){
   return;
 }
@@ -522,6 +548,23 @@ function renderMasterSqlTable(rows, title){
   return html;
 }
 
+async function saveQuestionProgress(q,isCorrect){
+  if(!q || !q.id) return;
+  try{
+    var response=await fetch('/api/question-progress', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({questionId:q.id,isCorrect:Boolean(isCorrect)})
+    });
+    if(!response.ok && response.status!==401){
+      console.warn('Could not save question progress.');
+    }
+  }catch(error){
+    console.warn('Could not save question progress.',error);
+  }
+}
+
 async function submitAnswer(){
   if(cur.done) return;
   var q=cur.list[cur.i], ua="";
@@ -545,6 +588,7 @@ async function submitAnswer(){
     ev = evaluate(q,ua);
   }
 
+  if(q.tp !== 'mastersql') await saveQuestionProgress(q,ev.ok);
   cur.results.push({q:q,ua:ua,ok:ev.ok});
   cur.done=true;
   $("btnsubmit").disabled=true;

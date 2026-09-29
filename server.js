@@ -5,14 +5,41 @@ const vm = require('vm');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const sqlite3 = require('sqlite3').verbose();
+const { createMasterSqlChecker } = require('./sql/master-sql-checker');
 
 const app = express();
 const port = process.env.PORT || 3000;
 const sessionSecret = process.env.SESSION_SECRET;
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
-const db = new sqlite3.Database('./app.db');
-const practiceDb = new sqlite3.Database('./student_practice.db');
+const databaseDirectory = path.resolve(process.env.DATABASE_DIR || __dirname);
+const databasePaths = [
+  path.join(databaseDirectory, 'app.db'),
+  path.join(databaseDirectory, 'student_practice.db')
+];
+
+try {
+  fs.mkdirSync(databaseDirectory, { recursive: true });
+  fs.accessSync(databaseDirectory, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK);
+  databasePaths.forEach((databasePath) => {
+    if (fs.existsSync(databasePath)) {
+      fs.accessSync(databasePath, fs.constants.R_OK | fs.constants.W_OK);
+      const descriptor = fs.openSync(databasePath, 'r+');
+      fs.closeSync(descriptor);
+    }
+  });
+  const writeProbePath = path.join(databaseDirectory, `.sqlite-write-probe-${process.pid}-${Date.now()}`);
+  const writeProbeDescriptor = fs.openSync(writeProbePath, 'wx', 0o600);
+  fs.closeSync(writeProbeDescriptor);
+  fs.unlinkSync(writeProbePath);
+} catch (error) {
+  console.error(`SQLite database directory or files are not writable by the server process: ${error.path || databaseDirectory}`);
+  console.error(error.message);
+  process.exit(1);
+}
+
+const db = new sqlite3.Database(databasePaths[0]);
+const practiceDb = new sqlite3.Database(databasePaths[1]);
 const homePagePath = path.join(__dirname, 'index.html');
 const homePage = fs.readFileSync(homePagePath, 'utf8');
 let sqlQueue = Promise.resolve();
@@ -24,6 +51,7 @@ if (!sessionSecret || !adminUsername || !adminPassword) {
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(['/app.db', '/student_practice.db'], (req, res) => res.sendStatus(404));
 app.use(express.static(__dirname));
 app.use(
   session({
@@ -220,85 +248,146 @@ function ensureAdminUser(callback) {
   });
 }
 
-function initializeDatabase() {
+function runAppSql(sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.serialize(() => {
-      db.run('DROP TABLE IF EXISTS users', (dropErr) => {
-        if (dropErr) {
-          return reject(dropErr);
-        }
-
-        db.run(`
-          CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'User'
-          )
-        `, (createErr) => {
-          if (createErr) {
-            return reject(createErr);
-          }
-
-          ensureAdminUser((seedErr) => {
-            if (seedErr) {
-              return reject(seedErr);
-            }
-
-            return resolve();
-          });
-        });
-      });
+    db.run(sql, params, function (error) {
+      if (error) return reject(error);
+      resolve(this);
     });
   });
 }
 
-function initializePracticeDatabase() {
+function getAppRows(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (error, rows) => {
+      if (error) return reject(error);
+      resolve(rows || []);
+    });
+  });
+}
+
+function createQuestionProgressTable(tableName) {
+  return `CREATE TABLE ${tableName} (
+    user_id INTEGER NOT NULL,
+    question_id TEXT NOT NULL,
+    is_completed INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    last_answer_correct INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, question_id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (question_id) REFERENCES Questions(question_id)
+  )`;
+}
+
+async function seedQuestionRegistry() {
+  for (const [questionId, question] of QUESTIONS_BY_ID) {
+    await runAppSql(`
+      INSERT INTO Questions (question_id, question, category, level, question_type)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(question_id) DO UPDATE SET
+        question = excluded.question,
+        category = excluded.category,
+        level = excluded.level,
+        question_type = excluded.question_type
+    `, [
+      questionId,
+      question.q || question.question || question.title || questionId,
+      question.category,
+      question.level,
+      question.t || 'unknown'
+    ]);
+  }
+}
+
+async function migrateQuestionProgress() {
+  const columns = await getAppRows('PRAGMA table_info(question_progress)');
+  if (!columns.length) {
+    await runAppSql(createQuestionProgressTable('question_progress'));
+    return;
+  }
+
+  const foreignKeys = await getAppRows('PRAGMA foreign_key_list(question_progress)');
+  if (foreignKeys.some((key) => key.table.toLowerCase() === 'questions' && key.from === 'question_id')) {
+    return;
+  }
+
+  const legacyRows = await getAppRows('SELECT * FROM question_progress');
+  const registeredIds = new Set((await getAppRows('SELECT question_id FROM Questions')).map((row) => row.question_id));
+  for (const row of legacyRows) {
+    if (registeredIds.has(row.question_id)) continue;
+    await runAppSql(`
+      INSERT INTO Questions (question_id, question, category, level, question_type)
+      VALUES (?, ?, ?, 'legacy', 'legacy')
+      ON CONFLICT(question_id) DO NOTHING
+    `, [row.question_id, row.question_title || row.question_id, row.category || 'legacy']);
+    registeredIds.add(row.question_id);
+  }
+
+  await runAppSql('BEGIN IMMEDIATE');
+  try {
+    await runAppSql('DROP TABLE IF EXISTS question_progress_new');
+    await runAppSql(createQuestionProgressTable('question_progress_new'));
+    for (const row of legacyRows) {
+      await runAppSql(`
+        INSERT INTO question_progress_new (
+          user_id, question_id, is_completed, attempts, last_answer_correct, last_attempt_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `, [
+        row.user_id,
+        row.question_id,
+        row.is_completed || 0,
+        row.attempts || 1,
+        row.last_answer_correct || 0,
+        row.last_attempt_at || new Date().toISOString()
+      ]);
+    }
+    await runAppSql('DROP TABLE question_progress');
+    await runAppSql('ALTER TABLE question_progress_new RENAME TO question_progress');
+    await runAppSql('COMMIT');
+  } catch (error) {
+    await runAppSql('ROLLBACK').catch(() => {});
+    throw error;
+  }
+}
+
+async function initializeDatabase() {
+  await runAppSql('PRAGMA foreign_keys = ON');
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'User'
+    )
+  `);
+  await new Promise((resolve, reject) => {
+    ensureAdminUser((error) => error ? reject(error) : resolve());
+  });
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS Questions (
+      question_id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      category TEXT NOT NULL,
+      level TEXT NOT NULL,
+      question_type TEXT NOT NULL
+    )
+  `);
+  await seedQuestionRegistry();
+  await migrateQuestionProgress();
+}
+
+function initializePracticeDatabase(question) {
   return new Promise((resolve, reject) => {
     practiceDb.serialize(() => {
+      const allTables = Object.values(BANK.mastersql.tables);
+      const requiredTableNames = typeof question === 'string'
+        ? BANK.mastersql.getRequiredTables(question)
+        : (question && question.requiredTables) || BANK.mastersql.getRequiredTables(question);
+      const requiredTables = BANK.mastersql.getTables(requiredTableNames);
       const statements = [
-        `DROP TABLE IF EXISTS Enrolment`,
-        `DROP TABLE IF EXISTS Subject`,
-        `DROP TABLE IF EXISTS Student`,
-        `CREATE TABLE Student (
-          StudentID TEXT PRIMARY KEY,
-          Name TEXT NOT NULL,
-          Class TEXT NOT NULL,
-          Score INTEGER NOT NULL
-        )`,
-        `CREATE TABLE Subject (
-          SubjectID TEXT PRIMARY KEY,
-          SubjectName TEXT NOT NULL,
-          Teacher TEXT NOT NULL
-        )`,
-        `CREATE TABLE Enrolment (
-          StudentID TEXT NOT NULL,
-          SubjectID TEXT NOT NULL,
-          Grade TEXT NOT NULL,
-          PRIMARY KEY (StudentID, SubjectID),
-          FOREIGN KEY (StudentID) REFERENCES Student(StudentID),
-          FOREIGN KEY (SubjectID) REFERENCES Subject(SubjectID)
-        )`,
-        `INSERT INTO Student (StudentID, Name, Class, Score) VALUES
-          ('S01', 'Peter Chan', '6A', 85),
-          ('S02', 'Mary Wong', '6B', 72),
-          ('S03', 'John Lee', '6A', 91),
-          ('S04', 'Amy Cheung', '6C', 68),
-          ('S05', 'Tom Wong', '6B', 78)`,
-        `INSERT INTO Subject (SubjectID, SubjectName, Teacher) VALUES
-          ('ENG', 'English', 'Ms Lam'),
-          ('MATH', 'Mathematics', 'Mr Fong'),
-          ('ICT', 'ICT', 'Ms Ho'),
-          ('PHY', 'Physics', 'Mr Ng')`,
-        `INSERT INTO Enrolment (StudentID, SubjectID, Grade) VALUES
-          ('S01', 'ENG', 'B'),
-          ('S01', 'ICT', 'A'),
-          ('S02', 'ENG', 'C'),
-          ('S02', 'MATH', 'B'),
-          ('S03', 'ICT', 'A'),
-          ('S04', 'MATH', 'C'),
-          ('S05', 'ICT', 'B'),
-          ('S05', 'PHY', 'B')`
+        ...allTables.slice().reverse().map((table) => table.drop),
+        ...requiredTables.flatMap((table) => [table.create, table.seed])
       ];
 
       practiceDb.exec(statements.join('; '), (execErr) => {
@@ -310,52 +399,6 @@ function initializePracticeDatabase() {
       });
     });
   });
-}
-
-function normalizeCell(value) {
-  if (typeof value === 'number') {
-    return Number(value.toFixed(4));
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    const numeric = Number(trimmed);
-    if (trimmed !== '' && trimmed !== 'null' && !Number.isNaN(numeric) && !isNaN(Number(trimmed)) && !/[A-Za-z]/.test(trimmed)) {
-      return Number(numeric.toFixed(4));
-    }
-    return trimmed;
-  }
-
-  return value;
-}
-
-function normalizeRows(rows) {
-  return (rows || [])
-    .map((row) => {
-      const out = {};
-      const keys = Object.keys(row).sort();
-      for (const key of keys) {
-        out[key] = normalizeCell(row[key]);
-      }
-      return out;
-    })
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-}
-
-function normalizeRowValueList(row) {
-  return Object.keys(row || {}).map((key) => normalizeCell(row[key]));
-}
-
-function compareRows(actualRows, expectedRows) {
-  const left = (actualRows || [])
-    .map((row) => normalizeRowValueList(row))
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-
-  const right = (expectedRows || [])
-    .map((row) => normalizeRowValueList(row))
-    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function queueSqlTask(task) {
@@ -396,32 +439,16 @@ async function fetchTableSchema(tableName) {
   return await runSqlQuery(`PRAGMA table_info(${tableName});`);
 }
 
-function getModelSql(question) {
-  return (question && (question.expectedQuery || question.sample) || '').trim();
-}
-
-async function runCanonicalModelResult(question) {
-  const modelSql = getModelSql(question);
-  if (!modelSql) {
-    throw new Error('Model SQL is missing for this Master SQL question.');
-  }
-
-  await initializePracticeDatabase();
-
-  if (question.type === 'mutation') {
-    await executePracticeSql(modelSql);
-    if (question.check === 'schema') {
-      return { expectedRows: await fetchTableSchema(question.table), expectedQuery: modelSql, modelSql };
-    }
-    return { expectedRows: await fetchTableRows(question.table), expectedQuery: modelSql, modelSql };
-  }
-
-  const rows = await runSqlQuery(modelSql);
-  return { expectedRows: rows, expectedQuery: modelSql, modelSql };
-}
+const checkMasterSqlAnswer = createMasterSqlChecker({
+  initializePracticeDatabase,
+  executePracticeSql,
+  fetchTableRows,
+  fetchTableSchema,
+  runSqlQuery
+});
 
 function loadQuestionBank() {
-  const bankPath = path.join(__dirname, 'question-bank.js');
+  const bankPath = path.join(__dirname, 'sql', 'question-bank.js');
   const source = fs.readFileSync(bankPath, 'utf8');
   const sandbox = { console };
   vm.runInNewContext(source, sandbox, { filename: bankPath });
@@ -429,6 +456,43 @@ function loadQuestionBank() {
 }
 
 const BANK = loadQuestionBank();
+const QUESTIONS_BY_ID = new Map();
+Object.keys(BANK || {}).forEach((category) => {
+  Object.keys(BANK[category] || {}).forEach((level) => {
+    const questions = BANK[category][level];
+    if (!Array.isArray(questions)) return;
+    questions.forEach((question) => {
+      if (question && question.id) {
+        QUESTIONS_BY_ID.set(question.id, { ...question, category, level });
+      }
+    });
+  });
+});
+
+function recordQuestionProgress(userId, questionId, isCorrect) {
+  const question = QUESTIONS_BY_ID.get(questionId);
+  if (!question) {
+    return Promise.reject(new Error('Question not found.'));
+  }
+
+  const completed = isCorrect ? 1 : 0;
+  return new Promise((resolve, reject) => {
+    db.run(`
+      INSERT INTO question_progress (
+        user_id, question_id, is_completed, attempts, last_answer_correct, last_attempt_at
+      ) VALUES (?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, question_id) DO UPDATE SET
+        is_completed = MAX(question_progress.is_completed, excluded.is_completed),
+        attempts = question_progress.attempts + 1,
+        last_answer_correct = excluded.last_answer_correct,
+        last_attempt_at = CURRENT_TIMESTAMP
+    `, [userId, questionId, completed, completed], (error) => {
+      if (error) return reject(error);
+      resolve();
+    });
+  });
+}
+
 const MASTER_SQL_QUESTIONS = ([]
   .concat(
     Array.isArray(BANK && BANK.mastersql && BANK.mastersql.basic) ? BANK.mastersql.basic : [],
@@ -441,6 +505,7 @@ const MASTER_SQL_QUESTIONS = ([]
     title: item.q,
     type: item.t === 'sql' && /mutation|alter|update|delete|insert/i.test((item.sample || '')) ? 'mutation' : 'select',
     table: item.table || 'all',
+    requiredTables: BANK.mastersql.getRequiredTables(item),
     check: item.check || undefined,
     question: item.q,
     description: item.q,
@@ -451,6 +516,18 @@ const MASTER_SQL_QUESTIONS = ([]
     wrong: item.wrong || [],
     tip: item.tip
   })));
+
+app.post('/api/question-progress', requireApiLogin, (req, res) => {
+  const questionId = (req.body && req.body.questionId) ? String(req.body.questionId) : '';
+  if (!questionId || !QUESTIONS_BY_ID.has(questionId)) {
+    return res.status(404).json({ error: 'Question not found.' });
+  }
+
+  const isCorrect = Boolean(req.body && req.body.isCorrect === true);
+  recordQuestionProgress(req.session.user.id, questionId, isCorrect)
+    .then(() => res.json({ ok: true }))
+    .catch((error) => res.status(500).json({ error: error.message }));
+});
 
 app.get('/', (req, res) => {
   res.set('Content-Type', 'text/html');
@@ -595,7 +672,7 @@ app.get('/admin-db', requireLogin, requireAdmin, (req, res) => {
 
 app.get('/api/admin-db-data', requireLogin, requireAdmin, async (req, res) => {
   try {
-    const appTables = await getDatabaseTables(db);
+    const appTables = (await getDatabaseTables(db)).filter((tableName) => tableName !== 'question_progress');
     const practiceTables = await getDatabaseTables(practiceDb);
 
     const appRows = await Promise.all(appTables.map(async (tableName) => ({
@@ -607,6 +684,27 @@ app.get('/api/admin-db-data', requireLogin, requireAdmin, async (req, res) => {
       name: tableName,
       rows: await getTableRows(practiceDb, tableName)
     })));
+    const progressRows = await new Promise((resolve, reject) => {
+      db.all(`
+        SELECT users.username AS student,
+          Questions.question_id,
+          Questions.question,
+          Questions.category,
+          Questions.level,
+          CASE WHEN question_progress.is_completed = 1 THEN 'Completed' ELSE 'Attempted' END AS status,
+          question_progress.attempts,
+          CASE WHEN question_progress.last_answer_correct = 1 THEN 'Correct' ELSE 'Incorrect' END AS latest_result,
+          question_progress.last_attempt_at
+        FROM question_progress
+        JOIN users ON users.id = question_progress.user_id
+        JOIN Questions ON Questions.question_id = question_progress.question_id
+        ORDER BY users.username, question_progress.last_attempt_at DESC
+      `, (error, rows) => {
+        if (error) return reject(error);
+        resolve(rows || []);
+      });
+    });
+    appRows.push({ name: 'question_progress', rows: progressRows });
 
     res.json([
       { label: 'Application database (app.db)', tables: appRows },
@@ -674,7 +772,7 @@ app.post('/api/sql-practice', requireApiLogin, (req, res) => {
 
   queueSqlTask(async () => {
     try {
-      await initializePracticeDatabase();
+      await initializePracticeDatabase(sql);
       const rows = await runSqlQuery(sql);
       const columns = rows && rows.length ? Object.keys(rows[0]) : [];
       return res.json({
@@ -710,42 +808,13 @@ app.post('/api/master-sql-check', requireApiLogin, async (req, res) => {
 
   const allowedPattern = /^\s*(SELECT|WITH|EXPLAIN|INSERT|UPDATE|DELETE|ALTER)\b/i;
   if (!allowedPattern.test(sql)) {
+    await recordQuestionProgress(req.session.user.id, question.id, false);
     return res.status(400).json({ error: 'Only SELECT / WITH / EXPLAIN / INSERT / UPDATE / DELETE / ALTER queries are allowed.' });
   }
 
   try {
-    const result = await queueSqlTask(async () => {
-      const modelResult = await runCanonicalModelResult(question);
-      await initializePracticeDatabase();
-
-      if (question.type === 'mutation') {
-        await executePracticeSql(sql);
-
-        const actualRows = question.check === 'schema'
-          ? await fetchTableSchema(question.table)
-          : await fetchTableRows(question.table);
-
-        const isCorrect = compareRows(actualRows, modelResult.expectedRows);
-
-        return {
-          isCorrect,
-          studentRows: actualRows,
-          expectedRows: modelResult.expectedRows,
-          expectedQuery: modelResult.expectedQuery,
-          question
-        };
-      }
-
-      const studentRows = await runSqlQuery(sql);
-      const isCorrect = compareRows(studentRows, modelResult.expectedRows);
-      return {
-        isCorrect,
-        studentRows,
-        expectedRows: modelResult.expectedRows,
-        expectedQuery: modelResult.expectedQuery,
-        question
-      };
-    });
+    const result = await queueSqlTask(() => checkMasterSqlAnswer(question, sql));
+    await recordQuestionProgress(req.session.user.id, question.id, result.isCorrect);
 
     return res.json({
       ok: true,
@@ -758,6 +827,7 @@ app.post('/api/master-sql-check', requireApiLogin, async (req, res) => {
       expectedQuery: result.expectedQuery || question.expectedQuery
     });
   } catch (error) {
+    await recordQuestionProgress(req.session.user.id, question.id, false);
     return res.status(400).json({ error: error.message });
   }
 });
@@ -773,7 +843,6 @@ app.get('/admin-only', requireLogin, requireAdmin, (req, res) => {
 });
 
 initializeDatabase()
-  .then(() => initializePracticeDatabase())
   .then(() => {
     app.listen(port, () => {
       console.log(`Server running on http://localhost:${port}`);

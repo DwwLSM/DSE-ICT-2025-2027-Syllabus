@@ -45,6 +45,85 @@ advanced:[
 {t:"out",q:"What is the exact output? (2D lists)",code:"g = [[1, 2], [3, 4], [5, 6]]\nprint(g[1][0] + g[2][1])",ans:"9",why:"g[1] is [3,4]; [0] selects 3. g[2] is [5,6]; [1] selects 6. Sum = 9. First index = row, second = column.",steps:["g[1][0] = 3","g[2][1] = 6","3 + 6 = 9"],wrong:["Reading g[1][0] as the VALUES 1 and 0 instead of indices"],tip:"2D lists = list of lists: g[row][col]. Appears in grid/image questions."}
 ]},
 mastersql:{
+  tables:{
+    Student:{
+      dependencies:[],
+      drop:`DROP TABLE IF EXISTS Student`,
+      create:`CREATE TABLE Student (
+        StudentID TEXT PRIMARY KEY,
+        Name TEXT NOT NULL,
+        Class TEXT NOT NULL,
+        Score INTEGER NOT NULL
+      )`,
+      seed:`INSERT INTO Student (StudentID, Name, Class, Score) VALUES
+        ('S01', 'Peter Chan', '6A', 85),
+        ('S02', 'Mary Wong', '6B', 72),
+        ('S03', 'John Lee', '6A', 91),
+        ('S04', 'Amy Cheung', '6C', 68),
+        ('S05', 'Tom Wong', '6B', 78)`
+    },
+    Subject:{
+      dependencies:[],
+      drop:`DROP TABLE IF EXISTS Subject`,
+      create:`CREATE TABLE Subject (
+        SubjectID TEXT PRIMARY KEY,
+        SubjectName TEXT NOT NULL,
+        Teacher TEXT NOT NULL
+      )`,
+      seed:`INSERT INTO Subject (SubjectID, SubjectName, Teacher) VALUES
+        ('ENG', 'English', 'Ms Lam'),
+        ('MATH', 'Mathematics', 'Mr Fong'),
+        ('ICT', 'ICT', 'Ms Ho'),
+        ('PHY', 'Physics', 'Mr Ng')`
+    },
+    Enrolment:{
+      dependencies:["Student", "Subject"],
+      drop:`DROP TABLE IF EXISTS Enrolment`,
+      create:`CREATE TABLE Enrolment (
+        StudentID TEXT NOT NULL,
+        SubjectID TEXT NOT NULL,
+        Grade TEXT NOT NULL,
+        PRIMARY KEY (StudentID, SubjectID),
+        FOREIGN KEY (StudentID) REFERENCES Student(StudentID),
+        FOREIGN KEY (SubjectID) REFERENCES Subject(SubjectID)
+      )`,
+      seed:`INSERT INTO Enrolment (StudentID, SubjectID, Grade) VALUES
+        ('S01', 'ENG', 'B'),
+        ('S01', 'ICT', 'A'),
+        ('S02', 'ENG', 'C'),
+        ('S02', 'MATH', 'B'),
+        ('S03', 'ICT', 'A'),
+        ('S04', 'MATH', 'C'),
+        ('S05', 'ICT', 'B'),
+        ('S05', 'PHY', 'B')`
+    }
+  },
+  getRequiredTables(question){
+    const sql = typeof question === "string"
+      ? question
+      : String(question && (question.sample || question.expectedQuery) || "");
+    return Object.keys(this.tables).filter((name) => {
+      const tableReference = new RegExp('\\b(?:FROM|JOIN|UPDATE|INTO|TABLE)\\s+["`]?'+name+'\\b', 'i');
+      const pragmaReference = new RegExp('\\bTABLE_INFO\\s*\\(\\s*["`]?'+name+'\\b', 'i');
+      return tableReference.test(sql) || pragmaReference.test(sql);
+    });
+  },
+  getTables(tableNames){
+    const orderedNames = [];
+    const includedNames = new Set();
+    const include = (name) => {
+      const table = this.tables[name];
+      if (!table) {
+        throw new Error(`Unknown SQL practice table: ${name}`);
+      }
+      if (includedNames.has(name)) return;
+      (table.dependencies || []).forEach(include);
+      includedNames.add(name);
+      orderedNames.push(name);
+    };
+    (tableNames || []).forEach(include);
+    return orderedNames.map((name) => ({name, ...this.tables[name]}));
+  },
   basic:[
     {t:"sql",table:"all",q:"Write an SQL statement to display the StudentID, Name and Class of the students who are in class 6A and have a score above 80.",sample:"SELECT StudentID, Name, Class FROM STUDENT WHERE Class = '6A' AND Score > 80;",why:"This is a single-table filter with two conditions combined by AND. Only students in 6A and above 80 qualify. The result should list StudentID, Name and Class.",steps:["Check the table and columns: StudentID, Name, Class, Score all come from STUDENT.","Filter rows with Class = '6A' AND Score > 80.","Display only the three requested columns."],wrong:["Using OR would include students in other classes with high scores","Forgetting that Score > 80 excludes 80 itself"],tip:"With AND, both conditions must be true; with OR, either condition is enough."},
     {t:"sql",table:"all",q:"Write an SQL statement to display the names of students who take the ICT subject.",sample:"SELECT DISTINCT S.Name FROM STUDENT S JOIN ENROLMENT E ON S.StudentID = E.StudentID JOIN SUBJECT SU ON E.SubjectID = SU.SubjectID WHERE SU.SubjectName = 'ICT';",why:"ICT is stored in the SUBJECT table, so the query must join all three tables to reach the subject name and then filter to ICT. DISTINCT is used to avoid repeated names when a student has multiple records in the same subject.",steps:["STUDENT → ENROLMENT on StudentID","ENROLMENT → SUBJECT on SubjectID","WHERE SubjectName = 'ICT'","SELECT DISTINCT Name"],wrong:["Filtering on SubjectID only may work if the code knows the ID, but here the question asks for the subject name.","Forgetting DISTINCT may duplicate names if the query structure is repeated."],tip:"When a name is asked, always join through the junction table before filtering on the related table."},
@@ -257,20 +336,44 @@ advanced:[
 };;
 
 (function(){
-  var counters = { mc:0, out:0, sql:0 };
+  function slug(value){
+    return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+  function hash(value){
+    var result = 2166136261;
+    for(var i=0;i<value.length;i++){
+      result ^= value.charCodeAt(i);
+      result = Math.imul(result, 16777619);
+    }
+    return (result >>> 0).toString(36);
+  }
+  var usedIds = Object.create(null);
   var topics = Object.keys(BANK || {});
   for (var t = 0; t < topics.length; t++) {
-    var topic = BANK[topics[t]];
+    var topicName = topics[t];
+    var topic = BANK[topicName];
     var levels = Object.keys(topic || {});
     for (var d = 0; d < levels.length; d++) {
-      var list = topic[levels[d]] || [];
+      var levelName = levels[d];
+      var list = topic[levelName];
+      if (!Array.isArray(list)) continue;
       for (var q = 0; q < list.length; q++) {
         var item = list[q];
         if (!item || !item.t) continue;
-        var type = String(item.t).toLowerCase();
-        if (!counters[type]) counters[type] = 0;
-        counters[type] += 1;
-        item.id = type + counters[type];
+        var identity = JSON.stringify([
+          topicName,
+          levelName,
+          item.t,
+          item.q || '',
+          item.code || '',
+          item.sample || '',
+          item.ans || '',
+          item.opts || []
+        ]);
+        var baseId = 'q-' + slug(topicName) + '-' + slug(levelName) + '-' + hash(identity);
+        var duplicateCount = usedIds[baseId] || 0;
+        usedIds[baseId] = duplicateCount + 1;
+        item.id = baseId + (duplicateCount ? '-' + (duplicateCount + 1) : '');
       }
     }
   }
@@ -290,7 +393,6 @@ advanced:[
       if (!item || typeof item !== 'object') return;
       var modelSql = (item.sample || '').replace(/\s+/g, ' ').trim();
       item.keys = modelSql ? [modelSql.toLowerCase()] : [];
-      item.id = 'master-sql-' + String(modelIndex).padStart(2, '0');
       modelIndex += 1;
     });
   });
