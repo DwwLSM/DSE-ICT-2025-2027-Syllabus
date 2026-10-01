@@ -132,6 +132,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;padding:16px;border
       <span class="pill g on" data-d="basic">Basic</span>
       <span class="pill o" data-d="intermediate">Intermediate</span>
       <span class="pill r" data-d="advanced">Advanced</span>
+      <span class="pill" data-d="mutation" style="display:none">✏️ Data Changes</span>
     </div>
     <div class="orow"><b>Questions</b>
       <select id="qcount">
@@ -275,7 +276,7 @@ var TINFO={
  algo:{label:"Algorithms (Elective C)",cls:"bal"},
  theory:{label:"ICT Concepts",cls:"bth"}
 };
-var DL={basic:"Basic",intermediate:"Intermediate",advanced:"Advanced"};
+var DL={basic:"Basic",intermediate:"Intermediate",advanced:"Advanced",mutation:"Data Changes"};
 var DORD=["basic","intermediate","advanced"];
 
 /* =====================================================================
@@ -294,6 +295,10 @@ var DORD=["basic","intermediate","advanced"];
 var T_STUDENT="STUDENT\n+-----------+-------------+-------+-------+\n| StudentID | Name        | Class | Score |\n+-----------+-------------+-------+-------+\n| S01       | Peter Chan  | 6A    | 85    |\n| S02       | Mary Wong   | 6B    | 72    |\n| S03       | John Lee    | 6A    | 91    |\n| S04       | Amy Cheung  | 6C    | 68    |\n| S05       | Tom Wong    | 6B    | 78    |\n+-----------+-------------+-------+-------+";
 var T_SUBJECT="SUBJECT\n+-----------+-------------+---------+\n| SubjectID | SubjectName | Teacher |\n+-----------+-------------+---------+\n| ENG       | English     | Ms Lam  |\n| MATH      | Mathematics | Mr Fong |\n| ICT       | ICT         | Ms Ho   |\n| PHY       | Physics     | Mr Ng   |\n+-----------+-------------+---------+";
 var T_ENROLMENT="ENROLMENT\n+-----------+-----------+-------+\n| StudentID | SubjectID | Grade |\n+-----------+-----------+-------+\n| S01       | ENG       | B     |\n| S01       | ICT       | A     |\n| S02       | ENG       | C     |\n| S02       | MATH      | B     |\n| S03       | ICT       | A     |\n| S04       | MATH      | C     |\n| S05       | ICT       | B     |\n| S05       | PHY       | B     |\n+-----------+-----------+-------+";
+var T_DEPARTMENT="DEPARTMENT\n+--------------+----------------+--------+\n| DepartmentID | DepartmentName | Office |\n+--------------+----------------+--------+\n| D01          | Languages      | B201   |\n| D02          | Mathematics    | C101   |\n| D03          | Science        | C201   |\n| D04          | ICT            | A105   |\n+--------------+----------------+--------+";
+var T_TEACHER="TEACHER\n+-----------+-------------+--------------+----------------+\n| TeacherID | TeacherName | DepartmentID | YearsOfService |\n+-----------+-------------+--------------+----------------+\n| T01       | Ms Lam      | D01          | 8              |\n| T02       | Mr Fong     | D02          | 12             |\n| T03       | Mr Ng       | D03          | 15             |\n| T04       | Ms Ho       | D04          | 6              |\n+-----------+-------------+--------------+----------------+";
+var T_BOOK="BOOK\n+--------+---------------+----------+-------------+--------+\n| BookID | Title         | Author   | Category    | Copies |\n+--------+---------------+----------+-------------+--------+\n| B01    | Python Basics | L. Wong  | ICT         | 3      |\n| B02    | The Solar System | K. Ng | Science     | 2      |\n| B03    | World Stories | A. Chan  | English     | 4      |\n| B04    | Algebra Skills| M. Fong  | Mathematics | 1      |\n| B05    | Web Design    | S. Ho    | ICT         | 2      |\n+--------+---------------+----------+-------------+--------+";
+var T_LOAN="LOAN\n+--------+-----------+--------+------------+----------+\n| LoanID | StudentID | BookID | LoanDate   | Returned |\n+--------+-----------+--------+------------+----------+\n| L01    | S01       | B01    | 2026-09-01 | 1        |\n| L02    | S02       | B02    | 2026-09-10 | 0        |\n| L03    | S03       | B01    | 2026-09-12 | 0        |\n| L04    | S04       | B03    | 2026-09-15 | 1        |\n| L05    | S05       | B05    | 2026-09-18 | 0        |\n+--------+-----------+--------+------------+----------+";
 var TABLES={
  student:T_STUDENT,
  subject:T_SUBJECT,
@@ -301,7 +306,28 @@ var TABLES={
  se:T_STUDENT+"\n\n"+T_ENROLMENT,
  all:T_STUDENT+"\n\n"+T_SUBJECT+"\n\n"+T_ENROLMENT
 };
+var MASTER_TABLE_TEXT={
+  Student:T_STUDENT,
+  Subject:T_SUBJECT,
+  Enrolment:T_ENROLMENT,
+  Department:T_DEPARTMENT,
+  Teacher:T_TEACHER,
+  Book:T_BOOK,
+  Loan:T_LOAN
+};
 var TABLE=T_STUDENT; /* default shown for legacy table:true */
+
+function masterSqlTableText(question){
+  if(!question || !BANK.mastersql || typeof BANK.mastersql.getRequiredTables!="function") return TABLE;
+  var names=BANK.mastersql.getRequiredTables(question);
+  if(!names.length) return TABLE;
+  var ordered=BANK.mastersql.getTables(names);
+  var output=[];
+  for(var i=0;i<ordered.length;i++){
+    if(MASTER_TABLE_TEXT[ordered[i].name]) output.push(MASTER_TABLE_TEXT[ordered[i].name]);
+  }
+  return output.join("\n\n") || TABLE;
+}
 
 /* =====================================================================
    ADMIN PASSWORD — hash-verified (plaintext password is NOT in this file)
@@ -344,6 +370,10 @@ function verifyAdminPw(pw,cb){
       for(var c=0;c<arr.length;c++){ arr[c].tp=TOPICS[a]; }
     }
   }
+  var mutations=BANK.mastersql&&BANK.mastersql.mutation;
+  if(Array.isArray(mutations)){
+    for(var d=0;d<mutations.length;d++){ mutations[d].tp="mastersql"; }
+  }
 })();
 
 /* ---------- app state ---------- */
@@ -359,7 +389,8 @@ function show(id){ for(var i=0;i<SCREENS.length;i++){ $(SCREENS[i]).style.displa
 function updateBest(){
   var k="dseict_"+cur.topic+"_"+cur.diff;
   var v=loadBest(k);
-  var name=(cur.topic==="mixed")?"Mixed":TINFO[cur.topic].label;
+  var topicInfo=TINFO[cur.topic];
+  var name=(cur.topic==="mixed")?"Mixed":(topicInfo?topicInfo.label:cur.topic||"Practice");
   $("bestline").textContent = v ? ("🏆 Best score at "+DL[cur.diff]+" level in "+name+": "+v+"%") : "";
 }
 
@@ -449,6 +480,7 @@ function bindSetup(){
       for(var j=0;j<cards.length;j++) cards[j].classList.remove("on");
       this.classList.add("on");
       cur.topic=this.getAttribute("data-t");
+      updateDifficultyOptions();
       updateBest();
     };
   }
@@ -469,6 +501,14 @@ function bindSetup(){
       cur.mode=this.getAttribute("data-m");
     };
   }
+}
+
+function updateDifficultyOptions(){
+  var mutation=document.querySelector('[data-d="mutation"]');
+  if(!mutation) return;
+  var isMasterSql=cur.topic==="mastersql";
+  mutation.style.display=isMasterSql?"inline-block":"none";
+  if(!isMasterSql&&cur.diff==="mutation") setDiff("basic");
 }
 
 /* ---------- quiz flow ---------- */
@@ -502,7 +542,7 @@ function renderQ(){
   $("qtext").textContent=q.q;
   if(q.code){ $("qcode").textContent=q.code; $("qcode").classList.remove("hide"); } else $("qcode").classList.add("hide");
   if(q.table){
-    $("qtable").textContent=(typeof q.table==="string"&&TABLES[q.table])?TABLES[q.table]:TABLE;
+    $("qtable").textContent=q.tp==="mastersql"?masterSqlTableText(q):((typeof q.table==="string"&&TABLES[q.table])?TABLES[q.table]:TABLE);
     $("qtable").classList.remove("hide");
   } else $("qtable").classList.add("hide");
 
@@ -829,6 +869,12 @@ function finish(){
   var sug=$("rsug");
   sug.innerHTML="";
   var p=document.createElement("p");
+  if(cur.diff==="mutation"){
+    p.innerHTML="<b>Data changes practice complete.</b> Review the SQL statements and verify the final table state.";
+    sug.appendChild(p);
+    show("result");
+    return;
+  }
   if(pct>=80&&di<2){
     var nxt=DORD[di+1];
     p.innerHTML="Excellent! <b>"+pct+"%</b> at <b>"+DL[cur.diff]+"</b> level — you're ready to move up.";

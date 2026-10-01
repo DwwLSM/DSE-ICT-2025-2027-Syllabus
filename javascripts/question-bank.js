@@ -76,6 +76,72 @@ mastersql:{
         ('ICT', 'ICT', 'Ms Ho'),
         ('PHY', 'Physics', 'Mr Ng')`
     },
+    Department:{
+      dependencies:[],
+      drop:`DROP TABLE IF EXISTS Department`,
+      create:`CREATE TABLE Department (
+        DepartmentID TEXT PRIMARY KEY,
+        DepartmentName TEXT NOT NULL,
+        Office TEXT NOT NULL
+      )`,
+      seed:`INSERT INTO Department (DepartmentID, DepartmentName, Office) VALUES
+        ('D01', 'Languages', 'B201'),
+        ('D02', 'Mathematics', 'C101'),
+        ('D03', 'Science', 'C201'),
+        ('D04', 'ICT', 'A105')`
+    },
+    Teacher:{
+      dependencies:["Department"],
+      drop:`DROP TABLE IF EXISTS Teacher`,
+      create:`CREATE TABLE Teacher (
+        TeacherID TEXT PRIMARY KEY,
+        TeacherName TEXT NOT NULL,
+        DepartmentID TEXT NOT NULL,
+        YearsOfService INTEGER NOT NULL,
+        FOREIGN KEY (DepartmentID) REFERENCES Department(DepartmentID)
+      )`,
+      seed:`INSERT INTO Teacher (TeacherID, TeacherName, DepartmentID, YearsOfService) VALUES
+        ('T01', 'Ms Lam', 'D01', 8),
+        ('T02', 'Mr Fong', 'D02', 12),
+        ('T03', 'Mr Ng', 'D03', 15),
+        ('T04', 'Ms Ho', 'D04', 6)`
+    },
+    Book:{
+      dependencies:[],
+      drop:`DROP TABLE IF EXISTS Book`,
+      create:`CREATE TABLE Book (
+        BookID TEXT PRIMARY KEY,
+        Title TEXT NOT NULL,
+        Author TEXT NOT NULL,
+        Category TEXT NOT NULL,
+        Copies INTEGER NOT NULL
+      )`,
+      seed:`INSERT INTO Book (BookID, Title, Author, Category, Copies) VALUES
+        ('B01', 'Python Basics', 'L. Wong', 'ICT', 3),
+        ('B02', 'The Solar System', 'K. Ng', 'Science', 2),
+        ('B03', 'World Stories', 'A. Chan', 'English', 4),
+        ('B04', 'Algebra Skills', 'M. Fong', 'Mathematics', 1),
+        ('B05', 'Web Design', 'S. Ho', 'ICT', 2)`
+    },
+    Loan:{
+      dependencies:["Student", "Book"],
+      drop:`DROP TABLE IF EXISTS Loan`,
+      create:`CREATE TABLE Loan (
+        LoanID TEXT PRIMARY KEY,
+        StudentID TEXT NOT NULL,
+        BookID TEXT NOT NULL,
+        LoanDate TEXT NOT NULL,
+        Returned INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (StudentID) REFERENCES Student(StudentID),
+        FOREIGN KEY (BookID) REFERENCES Book(BookID)
+      )`,
+      seed:`INSERT INTO Loan (LoanID, StudentID, BookID, LoanDate, Returned) VALUES
+        ('L01', 'S01', 'B01', '2026-09-01', 1),
+        ('L02', 'S02', 'B02', '2026-09-10', 0),
+        ('L03', 'S03', 'B01', '2026-09-12', 0),
+        ('L04', 'S04', 'B03', '2026-09-15', 1),
+        ('L05', 'S05', 'B05', '2026-09-18', 0)`
+    },
     Enrolment:{
       dependencies:["Student", "Subject"],
       drop:`DROP TABLE IF EXISTS Enrolment`,
@@ -128,6 +194,12 @@ mastersql:{
     {t:"sql",table:"all",q:"Write an SQL statement to display the StudentID, Name and Class of the students who are in class 6A and have a score above 80.",sample:"SELECT StudentID, Name, Class FROM STUDENT WHERE Class = '6A' AND Score > 80;",why:"This is a single-table filter with two conditions combined by AND. Only students in 6A and above 80 qualify. The result should list StudentID, Name and Class.",steps:["Check the table and columns: StudentID, Name, Class, Score all come from STUDENT.","Filter rows with Class = '6A' AND Score > 80.","Display only the three requested columns."],wrong:["Using OR would include students in other classes with high scores","Forgetting that Score > 80 excludes 80 itself"],tip:"With AND, both conditions must be true; with OR, either condition is enough."},
     {t:"sql",table:"all",q:"Write an SQL statement to display the names of students who take the ICT subject.",sample:"SELECT DISTINCT S.Name FROM STUDENT S JOIN ENROLMENT E ON S.StudentID = E.StudentID JOIN SUBJECT SU ON E.SubjectID = SU.SubjectID WHERE SU.SubjectName = 'ICT';",why:"ICT is stored in the SUBJECT table, so the query must join all three tables to reach the subject name and then filter to ICT. DISTINCT is used to avoid repeated names when a student has multiple records in the same subject.",steps:["STUDENT → ENROLMENT on StudentID","ENROLMENT → SUBJECT on SubjectID","WHERE SubjectName = 'ICT'","SELECT DISTINCT Name"],wrong:["Filtering on SubjectID only may work if the code knows the ID, but here the question asks for the subject name.","Forgetting DISTINCT may duplicate names if the query structure is repeated."],tip:"When a name is asked, always join through the junction table before filtering on the related table."},
     {t:"sql",table:"all",q:"Write an SQL statement to display the names of students who scored more than the average score of all students.",sample:"SELECT Name FROM STUDENT WHERE Score > (SELECT AVG(Score) FROM STUDENT);",why:"A subquery calculates the class average; the outer query keeps only students whose Score is greater than that average. This is a classic DSE-style nested query pattern.",steps:["Compute AVG(Score) in the subquery.","Compare each student's score to that value.","Keep only those with Score > average."],wrong:["Using AVG(Score) without the subquery wraps the value in the correct place.","Using WHERE AVG(Score) > ... is not legal because aggregate functions do not work in WHERE."],tip:"In SQL, subqueries are often used to compute a threshold before filtering rows."},
+    {t:"sql",table:"all",q:"Write an SQL statement to display each teacher's name and department name.",sample:"SELECT TeacherName, DepartmentName FROM TEACHER JOIN DEPARTMENT ON TEACHER.DepartmentID = DEPARTMENT.DepartmentID;",why:"Teacher stores the department ID, while the readable department name is stored in Department. Join the tables using their primary-key/foreign-key pair.",steps:["Start with TEACHER because TeacherName is needed.","Join DEPARTMENT using DepartmentID.","Select TeacherName and DepartmentName."],wrong:["Selecting DepartmentName from TEACHER fails because that column is in DEPARTMENT.","Joining on TeacherID would not link the two tables."],tip:"Use the foreign key in the child table to reach descriptive data in the parent table."},
+    {t:"sql",table:"all",q:"Write an SQL statement to display the departments with at least 10 total years of teacher service.",sample:"SELECT D.DepartmentName, SUM(T.YearsOfService) FROM DEPARTMENT D JOIN TEACHER T ON D.DepartmentID = T.DepartmentID GROUP BY D.DepartmentName HAVING SUM(T.YearsOfService) >= 10;",why:"The service total is calculated from Teacher rows per department. GROUP BY creates one group per department and HAVING filters those aggregate totals.",steps:["Join DEPARTMENT to TEACHER.","Group by department name.","Add YearsOfService for each group.","Keep totals of at least 10."],wrong:["WHERE cannot filter SUM after grouping.","Counting teachers is different from adding their years of service."],tip:"Use SUM for a total and HAVING when the condition applies to each group."},
+    {t:"sql",table:"all",q:"Write an SQL statement to display the teacher with the most years of service.",sample:"SELECT TeacherName, YearsOfService FROM TEACHER ORDER BY YearsOfService DESC LIMIT 1;",why:"Sort Teacher rows from largest to smallest YearsOfService, then keep the first row.",steps:["Select the teacher name and service years.","Order YearsOfService descending.","Limit the result to one row."],wrong:["ASC would return the teacher with the fewest years.","MAX alone would return only a number, not the teacher name."],tip:"To return a row associated with an extreme value, ORDER BY the value and use LIMIT 1."},
+    {t:"sql",table:"all",q:"Write an SQL statement to display each student's name and the title of every book they have borrowed.",sample:"SELECT S.Name, B.Title FROM STUDENT S JOIN LOAN L ON S.StudentID = L.StudentID JOIN BOOK B ON L.BookID = B.BookID;",why:"The student's name is in Student and the book title is in Book. Loan is the junction table that connects them through StudentID and BookID.",steps:["Join STUDENT to LOAN using StudentID.","Join LOAN to BOOK using BookID.","Select the student's name and book title."],wrong:["Student and Book have no shared key for a direct join.","Joining only Student to Loan gives BookID, not the book title."],tip:"A junction table lets you connect two entities in a many-to-many relationship."},
+    {t:"sql",table:"all",q:"Write an SQL statement to display the titles of books that are currently on loan.",sample:"SELECT B.Title FROM BOOK B JOIN LOAN L ON B.BookID = L.BookID WHERE L.Returned = 0;",why:"Returned = 0 identifies loans that have not been returned. Join Loan to Book to display readable book titles.",steps:["Join BOOK to LOAN using BookID.","Filter Returned = 0.","Display the matching titles."],wrong:["Returned = 1 means the book has already been returned.","Filtering Book.Copies does not identify which copies are currently borrowed."],tip:"Use a status flag in the transaction table when the question asks for current or outstanding records."},
+    {t:"sql",table:"all",q:"Write an SQL statement to display each book category and the number of books in that category.",sample:"SELECT Category, COUNT(*) FROM BOOK GROUP BY Category;",why:"GROUP BY creates one group for each category, and COUNT(*) counts the Book rows in each group.",steps:["Group Book rows by Category.","Count the rows in each category."],wrong:["Without GROUP BY, COUNT returns one total for all books.","COUNT(Copies) would count rows, not add the number of available copies."],tip:"Be careful whether the question asks for the number of records or the total of a numeric column."},
     {t:"sql",table:"all",q:"Write an SQL statement to display each class and the average score in that class.",sample:"SELECT Class, AVG(Score) FROM STUDENT GROUP BY Class;",why:"The grouping is by Class, so each class becomes one group. AVG(Score) returns the mean score for that class.",steps:["Group rows by Class.","Compute AVG(Score) per group."],wrong:["Leaving out GROUP BY would produce one overall average instead of a per-class average.","Using WHERE instead of HAVING is not appropriate here because the question requires grouping."],tip:"When the question asks for 'each class' or 'per class', think GROUP BY immediately."}
   ],
   intermediate:[
@@ -148,7 +220,13 @@ mastersql:{
     {t:"sql",table:"Student",q:"Insert a new student record with StudentID S06, Name David Ho, Class 6A and Score 88.",sample:"INSERT INTO Student (StudentID, Name, Class, Score) VALUES ('S06', 'David Ho', '6A', 88);",why:"This tests the actual data-changing side of SQL. The answer is correct only if the database state matches the current Student table after the insert.",steps:["Use INSERT INTO Student.","Provide values in the table column order.","Check the table after the insert."],wrong:["Omitting the values list or using the wrong order changes the database state unexpectedly.","Checking the wrong table or comparing to stale data does not verify the current state."],tip:"Follow-up data questions must be validated against the current database state, not against a fixed example."},
     {t:"sql",table:"Student",q:"Update Mary Wong's score to 95.",sample:"UPDATE Student SET Score = 95 WHERE StudentID = 'S02';",why:"UPDATE modifies the existing row in the actual database. The query is correct only if the new value appears in the current Student table when checked.",steps:["Set the column value to 95.","Use StudentID = 'S02' so only Mary Wong is updated.","Compare the database table after the update."],wrong:["Leaving out WHERE changes every student, not just Mary Wong.","Checking a copied answer without comparing the real table state is not valid."],tip:"For UPDATE questions, always verify that only the target row changes."},
     {t:"sql",table:"Student",q:"Delete the student record for Amy Cheung.",sample:"DELETE FROM Student WHERE StudentID = 'S04';",why:"DELETE removes the selected row from the real Student table. A correct answer must leave the database state consistent with the updated table after deletion.",steps:["Use DELETE FROM Student.","Filter by StudentID = 'S04'.", "Check the resulting Student rows."],wrong:["Using DROP would delete the whole table, not one row.","Forgetting WHERE would remove all student rows."],tip:"The database result must match the current Student data after the delete."},
-    {t:"sql",table:"Student",q:"Add a new column Attendance with default value 0 to the Student table.",sample:"ALTER TABLE Student ADD COLUMN Attendance INTEGER DEFAULT 0;",why:"ALTER TABLE changes the table schema, not the row data. The answer should be checked against the PRAGMA table_info(Student) output, which shows the new column exists with the correct default.",steps:["Use ALTER TABLE Student.","Add the new column name and type.","Check the schema of the current Student table."],wrong:["Using UPDATE or INSERT would not change the table structure.","Comparing only the row values misses the schema difference."],tip:"Schema-based follow-up tasks must validate the actual table definition, not just the row content."}
+    {t:"sql",table:"Student",q:"Add a new column Attendance with default value 0 to the Student table.",sample:"ALTER TABLE Student ADD COLUMN Attendance INTEGER DEFAULT 0;",why:"ALTER TABLE changes the table schema, not the row data. The answer should be checked against the PRAGMA table_info(Student) output, which shows the new column exists with the correct default.",steps:["Use ALTER TABLE Student.","Add the new column name and type.","Check the schema of the current Student table."],wrong:["Using UPDATE or INSERT would not change the table structure.","Comparing only the row values misses the schema difference."],tip:"Schema-based follow-up tasks must validate the actual table definition, not just the row content."},
+    {t:"sql",table:"Teacher",q:"Insert a new teacher T05 named Mr Yip in department D04 with 4 years of service.",sample:"INSERT INTO Teacher (TeacherID, TeacherName, DepartmentID, YearsOfService) VALUES ('T05', 'Mr Yip', 'D04', 4);",why:"The row belongs in Teacher and must use the existing D04 department ID. Naming columns explicitly makes the value order clear.",steps:["Insert into Teacher.","Provide the four column values in matching order.","Check that T05 appears once with DepartmentID D04."],wrong:["Inserting DepartmentName instead of DepartmentID breaks the table design.","Putting 4 before D04 swaps the last two values."],tip:"INSERT adds a row; it does not change the table structure."},
+    {t:"sql",table:"Teacher",q:"Delete teacher T03 from the Teacher table.",sample:"DELETE FROM Teacher WHERE TeacherID = 'T03';",why:"DELETE removes matching rows from a table. Filtering by the primary key limits the change to Mr Ng's record.",steps:["Use DELETE FROM Teacher.","Filter with TeacherID = 'T03'.","Check that the other teachers remain."],wrong:["DROP TABLE would remove the entire table.","Leaving out WHERE would delete every teacher."],tip:"For DELETE, always identify the exact row condition before running the statement."},
+    {t:"sql",table:"Department",q:"Add a Budget column with default value 0 to the Department table.",sample:"ALTER TABLE Department ADD COLUMN Budget INTEGER DEFAULT 0;",why:"ALTER TABLE changes the structure of Department by adding a column. The schema check confirms the column type and default value.",steps:["Use ALTER TABLE Department.","Add Budget as an INTEGER.","Set its default to 0 and inspect the schema."],wrong:["INSERT would add a department row, not a column.","UPDATE changes existing values but does not add a new field."],tip:"DDL changes structure: CREATE, ALTER and DROP. DML changes rows: INSERT, UPDATE and DELETE."},
+    {t:"sql",table:"Book",q:"Insert a new book B06 titled 'SQL Practice', by 'R. Lee', in the 'ICT' category with 2 copies.",sample:"INSERT INTO Book (BookID, Title, Author, Category, Copies) VALUES ('B06', 'SQL Practice', 'R. Lee', 'ICT', 2);",why:"INSERT adds a new row to Book. The explicit column list makes the order of the values clear.",steps:["Insert into Book.","Provide values for the five named columns.","Check that B06 appears with two copies."],wrong:["INSERT adds a row, not a new column.","Putting the values in the wrong order stores incorrect book details."],tip:"Use an explicit column list when inserting so the statement remains clear and robust."},
+    {t:"sql",table:"Loan",q:"Delete loan L04 from the Loan table.",sample:"DELETE FROM Loan WHERE LoanID = 'L04';",why:"DELETE removes the one loan identified by its primary key. The associated book and student records remain unchanged.",steps:["Use DELETE FROM Loan.","Filter with LoanID = 'L04'.","Check that other loans remain."],wrong:["Deleting from Book would remove the book record, not the loan.","Leaving out WHERE would delete every loan."],tip:"Delete transaction records from the transaction table, not from the entity tables they reference."},
+    {t:"sql",table:"Book",q:"Add a Publisher column with default value 'School Library' to the Book table.",sample:"ALTER TABLE Book ADD COLUMN Publisher TEXT DEFAULT 'School Library';",why:"ALTER TABLE changes the Book schema by adding a text column. Existing rows receive the default value in SQLite.",steps:["Use ALTER TABLE Book.","Add Publisher as TEXT.","Set the default value and inspect the schema."],wrong:["UPDATE changes existing values but cannot create a new column.","INSERT would create another book row."],tip:"ALTER TABLE ADD COLUMN changes the structure shared by every Book row."}
   ]
 },
 sql:{
