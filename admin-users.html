@@ -101,6 +101,26 @@
         </section>
 
         <section class="card">
+          <h2>Edit user</h2>
+          <form id="edit-user-form">
+            <label for="edit-user-select">User</label>
+            <select id="edit-user-select" name="userId" required>
+              <option value="">Loading users...</option>
+            </select>
+            <label for="edit-username">Username</label>
+            <input id="edit-username" name="username" required minlength="3" autocomplete="off" />
+            <label for="edit-role">Role</label>
+            <select id="edit-role" name="role" required>
+              <option value="User">User</option>
+              <option value="Teacher">Teacher</option>
+              <option value="Admin">Admin</option>
+            </select>
+            <button type="submit">Save user changes</button>
+            <p id="edit-user-message" class="message" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card">
           <h2>Add class</h2>
           <form id="class-form">
             <label for="teacher">Teacher</label>
@@ -158,6 +178,7 @@
 
     <script>
       const userForm = document.getElementById('user-form');
+      const editUserForm = document.getElementById('edit-user-form');
       const classForm = document.getElementById('class-form');
       const classTeacherForm = document.getElementById('class-teacher-form');
       const memberForm = document.getElementById('member-form');
@@ -166,6 +187,9 @@
       const teacherClassSelect = document.getElementById('teacher-class');
       const memberUserSelect = document.getElementById('member-user');
       const memberClassSelect = document.getElementById('member-class');
+      const editUserSelect = document.getElementById('edit-user-select');
+      const editUsernameInput = document.getElementById('edit-username');
+      const editRoleSelect = document.getElementById('edit-role');
       let currentData = { users: [], classes: [], members: [], classTeachers: [] };
 
       function escapeHtml(value) {
@@ -189,6 +213,11 @@
           { key: 'username', label: 'Username' },
           { key: 'role', label: 'Role' }
         ], currentData.users, 'No users found.');
+
+        editUserSelect.innerHTML = currentData.users.length
+          ? currentData.users.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.username)} (${escapeHtml(user.role)})</option>`).join('')
+          : '<option value="">No users found</option>';
+        populateEditUserFields();
 
         const membersByClass = currentData.members.reduce((result, member) => {
           result[member.cid] = result[member.cid] || [];
@@ -227,6 +256,12 @@
           : '<option value="">Add a class first</option>';
       }
 
+      function populateEditUserFields() {
+        const user = currentData.users.find((item) => String(item.id) === editUserSelect.value);
+        editUsernameInput.value = user ? user.username : '';
+        editRoleSelect.value = user ? user.role : 'User';
+      }
+
       async function loadData() {
         const response = await fetch('/api/admin-users-data', { credentials: 'same-origin' });
         const data = await response.json();
@@ -235,14 +270,14 @@
         renderPage();
       }
 
-      async function submitForm(form, endpoint, messageId, body) {
+      async function submitForm(form, endpoint, messageId, body, method = 'POST') {
         const message = document.getElementById(messageId);
         const button = form.querySelector('button');
         button.disabled = true;
         message.textContent = '';
         try {
           const response = await fetch(endpoint, {
-            method: 'POST',
+            method,
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -268,6 +303,16 @@
           password: userForm.password.value,
           role: userForm.role.value
         });
+      });
+
+      editUserSelect.addEventListener('change', populateEditUserFields);
+
+      editUserForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitForm(editUserForm, `/api/admin-users/${encodeURIComponent(editUserSelect.value)}`, 'edit-user-message', {
+          username: editUsernameInput.value,
+          role: editRoleSelect.value
+        }, 'PUT');
       });
 
       classForm.addEventListener('submit', (event) => {

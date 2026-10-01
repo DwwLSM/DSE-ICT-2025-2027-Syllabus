@@ -833,6 +833,42 @@ app.post('/api/admin-users', requireLogin, requireAdmin, async (req, res) => {
   }
 });
 
+app.put('/api/admin-users/:id', requireLogin, requireAdmin, async (req, res) => {
+  const userId = Number(req.params.id);
+  const username = req.body && typeof req.body.username === 'string' ? req.body.username.trim() : '';
+  const role = req.body && typeof req.body.role === 'string' ? req.body.role : '';
+
+  if (!Number.isInteger(userId) || userId < 1) {
+    return res.status(400).json({ error: 'A valid user is required.' });
+  }
+  if (username.length < 3) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters.' });
+  }
+  if (!['User', 'Teacher', 'Admin'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid user role.' });
+  }
+
+  try {
+    const existingUsers = await getAppRows('SELECT id, role FROM users WHERE id = ?', [userId]);
+    if (!existingUsers.length) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    if (existingUsers[0].role === 'Admin' && role !== 'Admin') {
+      const admins = await getAppRows("SELECT COUNT(*) AS count FROM users WHERE role = 'Admin'");
+      if (admins[0].count <= 1) {
+        return res.status(409).json({ error: 'The last Admin account cannot be changed to another role.' });
+      }
+    }
+
+    await runAppSql('UPDATE users SET username = ?, role = ? WHERE id = ?', [username, role, userId]);
+    res.json({ ok: true, user: { id: userId, username, role } });
+  } catch (error) {
+    const status = error.code === 'SQLITE_CONSTRAINT' ? 409 : 500;
+    res.status(status).json({ error: status === 409 ? 'That username is already in use.' : error.message });
+  }
+});
+
 app.post('/api/admin-classes', requireLogin, requireAdmin, async (req, res) => {
   const teacherId = Number(req.body && req.body.teacherId);
   if (!Number.isInteger(teacherId) || teacherId < 1) {
