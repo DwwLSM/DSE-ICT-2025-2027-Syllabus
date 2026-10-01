@@ -5,7 +5,7 @@ const vm = require('vm');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
 const sqlite3 = require('sqlite3').verbose();
-const { createMasterSqlChecker } = require('./sql/master-sql-checker');
+const { createMasterSqlChecker } = require('./javascripts/master-sql-checker');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -63,11 +63,22 @@ app.use(
 );
 
 function requireLogin(req, res, next) {
-  if (req.session.user) {
-    return next();
+  if (!req.session.user) {
+    return res.redirect('/login');
   }
 
-  return res.redirect('/login');
+  db.get('SELECT id, username, role FROM users WHERE id = ?', [req.session.user.id], (error, user) => {
+    if (error) {
+      return res.status(500).send('Unable to verify your account.');
+    }
+    if (!user) {
+      req.session.destroy(() => res.redirect('/login'));
+      return;
+    }
+
+    req.session.user = user;
+    return next();
+  });
 }
 
 function requireApiLogin(req, res, next) {
@@ -84,6 +95,14 @@ function requireAdmin(req, res, next) {
   }
 
   return res.status(403).send('Admin access only.');
+}
+
+function requireTeacher(req, res, next) {
+  if (req.session.user && req.session.user.role === 'Teacher') {
+    return next();
+  }
+
+  return res.status(403).send('Teacher access only.');
 }
 
 function getDatabaseTables(database) {
@@ -361,6 +380,32 @@ async function initializeDatabase() {
       role TEXT NOT NULL DEFAULT 'User'
     )
   `);
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS Classes (
+      cid INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER NOT NULL,
+      FOREIGN KEY (id) REFERENCES users(id)
+    )
+  `);
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS ClassMembers (
+      id INTEGER NOT NULL,
+      cid INTEGER NOT NULL,
+      PRIMARY KEY (id, cid),
+      FOREIGN KEY (id) REFERENCES users(id),
+      FOREIGN KEY (cid) REFERENCES Classes(cid)
+    )
+  `);
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS ClassTeachers (
+      cid INTEGER NOT NULL,
+      id INTEGER NOT NULL,
+      PRIMARY KEY (cid, id),
+      FOREIGN KEY (cid) REFERENCES Classes(cid),
+      FOREIGN KEY (id) REFERENCES users(id)
+    )
+  `);
+  await runAppSql('INSERT OR IGNORE INTO ClassTeachers (cid, id) SELECT cid, id FROM Classes');
   await new Promise((resolve, reject) => {
     ensureAdminUser((error) => error ? reject(error) : resolve());
   });
@@ -448,7 +493,7 @@ const checkMasterSqlAnswer = createMasterSqlChecker({
 });
 
 function loadQuestionBank() {
-  const bankPath = path.join(__dirname, 'sql', 'question-bank.js');
+  const bankPath = path.join(__dirname, 'javascripts', 'question-bank.js');
   const source = fs.readFileSync(bankPath, 'utf8');
   const sandbox = { console };
   vm.runInNewContext(source, sandbox, { filename: bankPath });
@@ -629,7 +674,10 @@ app.get('/dashboard', requireLogin, (req, res) => {
   const user = req.session.user;
   const adminBadge = user.role === 'Admin' ? '<span style="background:#4f46e5;color:white;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;">Admin</span>' : '<span style="background:#16a34a;color:white;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;">User</span>';
   const adminLinks = user.role === 'Admin'
-    ? '<div class="link-box"><a href="/admin-db">View database tables</a></div>'
+    ? '<div class="link-box"><a href="/admin-db">View database tables</a></div><div class="link-box"><a href="/admin-users">Manage users and classes</a></div>'
+    : '';
+  const teacherLinks = user.role === 'Teacher'
+    ? '<div class="link-box"><a href="/teacher-progress">View class question progress</a></div>'
     : '';
 
   res.send(`
@@ -659,6 +707,7 @@ app.get('/dashboard', requireLogin, (req, res) => {
           <p><strong>Role:</strong> ${user.role}</p>
           <p><a href="/">Home page</a> | <a href="/sql-lab">SQL Practice Lab</a> | <a href="/logout">Logout</a></p>
           <div class="link-box"><a href="/sql-lab">Run SQL questions in the database lab</a></div>
+          ${teacherLinks}
           ${adminLinks}
         </div>
       </body>
@@ -666,8 +715,189 @@ app.get('/dashboard', requireLogin, (req, res) => {
   `);
 });
 
+app.get('/teacher-progress', requireLogin, requireTeacher, (req, res) => {
+  res.sendFile(path.join(__dirname, 'teacher-progress.html'));
+});
+
+app.get('/api/teacher-progress', requireLogin, requireTeacher, async (req, res) => {
+  const teacherId = req.session.user.id;
+
+  try {
+    const classes = await getAppRows(
+      'SELECT cid FROM ClassTeachers WHERE id = ? ORDER BY cid',
+      [teacherId]
+    );
+    if (!classes.length) {
+      return res.json({ classes: [], selectedClassId: null, totalQuestions: QUESTIONS_BY_ID.size, students: [], completedQuestions: [] });
+    }
+
+    const requestedClassId = req.query.classId ? Number(req.query.classId) : classes[0].cid;
+    const selectedClass = classes.find((classRow) => classRow.cid === requestedClassId);
+    if (!Number.isInteger(requestedClassId) || !selectedClass) {
+      return res.status(404).json({ error: 'Class not found for this teacher.' });
+    }
+
+    const students = await getAppRows(`
+      SELECT users.id, users.username,
+        COUNT(DISTINCT question_progress.question_id) AS attempted_count,
+        COUNT(DISTINCT CASE WHEN question_progress.is_completed = 1 THEN question_progress.question_id END) AS completed_count
+      FROM ClassMembers
+      JOIN users ON users.id = ClassMembers.id
+      LEFT JOIN question_progress ON question_progress.user_id = users.id
+      WHERE ClassMembers.cid = ?
+      GROUP BY users.id, users.username
+      ORDER BY users.username
+    `, [requestedClassId]);
+
+    const completedQuestions = await getAppRows(`
+      SELECT users.id AS student_id, users.username AS student,
+        Questions.question_id, Questions.question, Questions.category, Questions.level,
+        question_progress.last_attempt_at
+      FROM ClassMembers
+      JOIN users ON users.id = ClassMembers.id
+      JOIN question_progress ON question_progress.user_id = users.id AND question_progress.is_completed = 1
+      JOIN Questions ON Questions.question_id = question_progress.question_id
+      WHERE ClassMembers.cid = ?
+      ORDER BY users.username, Questions.category, Questions.level, Questions.question_id
+    `, [requestedClassId]);
+
+    res.json({
+      classes,
+      selectedClassId: requestedClassId,
+      totalQuestions: QUESTIONS_BY_ID.size,
+      students,
+      completedQuestions
+    });
+  } catch (error) {
+    res.status(500).json({ error: `Unable to load class progress: ${error.message}` });
+  }
+});
+
 app.get('/admin-db', requireLogin, requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'admin-db.html'));
+});
+
+app.get('/admin-users', requireLogin, requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin-users.html'));
+});
+
+app.get('/api/admin-users-data', requireLogin, requireAdmin, async (req, res) => {
+  try {
+    const users = await getAppRows('SELECT id, username, role FROM users ORDER BY username');
+    const classes = await getAppRows(`
+      SELECT Classes.cid, Classes.id AS teacher_id, users.username AS teacher
+      FROM Classes
+      JOIN users ON users.id = Classes.id
+      ORDER BY Classes.cid
+    `);
+    const members = await getAppRows(`
+      SELECT ClassMembers.cid, ClassMembers.id, users.username
+      FROM ClassMembers
+      JOIN users ON users.id = ClassMembers.id
+      ORDER BY ClassMembers.cid, users.username
+    `);
+    const classTeachers = await getAppRows(`
+      SELECT ClassTeachers.cid, ClassTeachers.id AS teacher_id, users.username AS teacher
+      FROM ClassTeachers
+      JOIN users ON users.id = ClassTeachers.id
+      ORDER BY ClassTeachers.cid, users.username
+    `);
+    res.json({ users, classes, members, classTeachers });
+  } catch (error) {
+    res.status(500).json({ error: `Unable to load users and classes: ${error.message}` });
+  }
+});
+
+app.post('/api/admin-users', requireLogin, requireAdmin, async (req, res) => {
+  const username = req.body && typeof req.body.username === 'string' ? req.body.username.trim() : '';
+  const password = req.body && typeof req.body.password === 'string' ? req.body.password : '';
+  const role = req.body && typeof req.body.role === 'string' ? req.body.role : 'User';
+
+  if (username.length < 3 || password.length < 6) {
+    return res.status(400).json({ error: 'Username must be at least 3 characters and password at least 6 characters.' });
+  }
+  if (!['User', 'Teacher', 'Admin'].includes(role)) {
+    return res.status(400).json({ error: 'Invalid user role.' });
+  }
+
+  try {
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    const result = await runAppSql(
+      'INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
+      [username, hashedPassword, role]
+    );
+    res.status(201).json({ ok: true, user: { id: result.lastID, username, role } });
+  } catch (error) {
+    const status = error.code === 'SQLITE_CONSTRAINT' ? 409 : 500;
+    res.status(status).json({ error: status === 409 ? 'That username already exists.' : error.message });
+  }
+});
+
+app.post('/api/admin-classes', requireLogin, requireAdmin, async (req, res) => {
+  const teacherId = Number(req.body && req.body.teacherId);
+  if (!Number.isInteger(teacherId) || teacherId < 1) {
+    return res.status(400).json({ error: 'A valid teacher is required.' });
+  }
+
+  try {
+    const teacher = await getAppRows("SELECT id, username FROM users WHERE id = ? AND role = 'Teacher'", [teacherId]);
+    if (!teacher.length) {
+      return res.status(404).json({ error: 'Teacher not found. Choose a user with the Teacher role.' });
+    }
+    const result = await runAppSql('INSERT INTO Classes (id) VALUES (?)', [teacherId]);
+    await runAppSql('INSERT INTO ClassTeachers (cid, id) VALUES (?, ?)', [result.lastID, teacherId]);
+    res.status(201).json({ ok: true, class: { cid: result.lastID, teacher_id: teacherId, teacher: teacher[0].username } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/admin-class-teachers', requireLogin, requireAdmin, async (req, res) => {
+  const teacherId = Number(req.body && req.body.teacherId);
+  const classId = Number(req.body && req.body.classId);
+  if (!Number.isInteger(teacherId) || teacherId < 1 || !Number.isInteger(classId) || classId < 1) {
+    return res.status(400).json({ error: 'A valid teacher and class are required.' });
+  }
+
+  try {
+    const teacher = await getAppRows("SELECT id, username FROM users WHERE id = ? AND role = 'Teacher'", [teacherId]);
+    if (!teacher.length) {
+      return res.status(404).json({ error: 'Teacher not found.' });
+    }
+    const classRows = await getAppRows('SELECT cid FROM Classes WHERE cid = ?', [classId]);
+    if (!classRows.length) {
+      return res.status(404).json({ error: 'Class not found.' });
+    }
+    await runAppSql('INSERT INTO ClassTeachers (cid, id) VALUES (?, ?)', [classId, teacherId]);
+    res.status(201).json({ ok: true, assignment: { cid: classId, teacher_id: teacherId, teacher: teacher[0].username } });
+  } catch (error) {
+    const status = error.code === 'SQLITE_CONSTRAINT' ? 409 : 500;
+    res.status(status).json({ error: status === 409 ? 'That teacher is already assigned to this class.' : error.message });
+  }
+});
+
+app.post('/api/admin-class-members', requireLogin, requireAdmin, async (req, res) => {
+  const userId = Number(req.body && req.body.userId);
+  const classId = Number(req.body && req.body.classId);
+  if (!Number.isInteger(userId) || userId < 1 || !Number.isInteger(classId) || classId < 1) {
+    return res.status(400).json({ error: 'A valid user and class are required.' });
+  }
+
+  try {
+    const user = await getAppRows("SELECT id, username FROM users WHERE id = ? AND role = 'User'", [userId]);
+    if (!user.length) {
+      return res.status(404).json({ error: 'Student user not found.' });
+    }
+    const classRows = await getAppRows('SELECT cid FROM Classes WHERE cid = ?', [classId]);
+    if (!classRows.length) {
+      return res.status(404).json({ error: 'Class not found.' });
+    }
+    await runAppSql('INSERT INTO ClassMembers (id, cid) VALUES (?, ?)', [userId, classId]);
+    res.status(201).json({ ok: true, member: { id: userId, username: user[0].username, cid: classId } });
+  } catch (error) {
+    const status = error.code === 'SQLITE_CONSTRAINT' ? 409 : 500;
+    res.status(status).json({ error: status === 409 ? 'That user is already in this class.' : error.message });
+  }
 });
 
 app.get('/api/admin-db-data', requireLogin, requireAdmin, async (req, res) => {

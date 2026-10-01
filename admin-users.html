@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manage Users and Classes</title>
+    <style>
+      :root {
+        --ink: #172033;
+        --muted: #64748b;
+        --line: #dbe3ef;
+        --paper: #ffffff;
+        --blue: #2563eb;
+        --blue-dark: #1d4ed8;
+        --red: #b91c1c;
+        --background: #eef3f8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px 20px 48px;
+        font-family: Arial, sans-serif;
+        background: var(--background);
+        color: var(--ink);
+      }
+      .wrap { max-width: 1120px; margin: 0 auto; }
+      .topbar, .actions, .form-grid { display: flex; gap: 16px; }
+      .topbar { align-items: center; justify-content: space-between; margin-bottom: 22px; }
+      .topbar h1 { margin: 0; }
+      .topbar a { color: var(--blue-dark); text-decoration: none; font-weight: 700; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 22px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      }
+      h2 { margin: 0 0 16px; font-size: 20px; }
+      label { display: block; margin: 12px 0 6px; font-weight: 700; }
+      input, select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 7px;
+        background: #fff;
+        font: inherit;
+      }
+      button {
+        margin-top: 16px;
+        padding: 10px 15px;
+        border: 0;
+        border-radius: 7px;
+        background: var(--blue);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:hover { background: var(--blue-dark); }
+      button:disabled { opacity: .65; cursor: wait; }
+      .message { min-height: 20px; margin: 12px 0 0; color: var(--red); font-weight: 700; }
+      .wide { grid-column: 1 / -1; }
+      .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 7px; }
+      table { width: 100%; border-collapse: collapse; min-width: 420px; }
+      th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+      th { background: #f8fafc; }
+      tr:last-child td { border-bottom: 0; }
+      .muted { color: var(--muted); }
+      @media (max-width: 720px) {
+        .grid { grid-template-columns: 1fr; }
+        .wide { grid-column: auto; }
+        .topbar { align-items: flex-start; flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="topbar">
+        <h1>Manage Users and Classes</h1>
+        <nav><a href="/admin-db">Database viewer</a> &nbsp;|&nbsp; <a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/logout">Logout</a></nav>
+      </header>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Add user</h2>
+          <form id="user-form">
+            <label for="username">Username</label>
+            <input id="username" name="username" required minlength="3" autocomplete="off" />
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" required minlength="6" />
+            <label for="role">Role</label>
+            <select id="role" name="role">
+              <option value="User">User</option>
+              <option value="Teacher">Teacher</option>
+              <option value="Admin">Admin</option>
+            </select>
+            <button type="submit">Add user</button>
+            <p id="user-message" class="message" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Add class</h2>
+          <form id="class-form">
+            <label for="teacher">Teacher</label>
+            <select id="teacher" name="teacherId" required>
+              <option value="">Loading users...</option>
+            </select>
+            <button type="submit">Add class</button>
+            <p id="class-message" class="message" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Assign another teacher</h2>
+          <form id="class-teacher-form">
+            <label for="class-teacher">Teacher</label>
+            <select id="class-teacher" name="teacherId" required>
+              <option value="">Loading users...</option>
+            </select>
+            <label for="teacher-class">Class</label>
+            <select id="teacher-class" name="classId" required>
+              <option value="">Loading classes...</option>
+            </select>
+            <button type="submit">Assign teacher</button>
+            <p id="class-teacher-message" class="message" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Add class member</h2>
+          <form id="member-form">
+            <label for="member-user">User</label>
+            <select id="member-user" name="userId" required>
+              <option value="">Loading users...</option>
+            </select>
+            <label for="member-class">Class</label>
+            <select id="member-class" name="classId" required>
+              <option value="">Loading classes...</option>
+            </select>
+            <button type="submit">Add member</button>
+            <p id="member-message" class="message" role="status"></p>
+          </form>
+        </section>
+
+        <section class="card wide">
+          <h2>Users</h2>
+          <div id="users-table" class="muted">Loading users...</div>
+        </section>
+
+        <section class="card wide">
+          <h2>Classes</h2>
+          <div id="classes-table" class="muted">Loading classes...</div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const userForm = document.getElementById('user-form');
+      const classForm = document.getElementById('class-form');
+      const classTeacherForm = document.getElementById('class-teacher-form');
+      const memberForm = document.getElementById('member-form');
+      const teacherSelect = document.getElementById('teacher');
+      const classTeacherSelect = document.getElementById('class-teacher');
+      const teacherClassSelect = document.getElementById('teacher-class');
+      const memberUserSelect = document.getElementById('member-user');
+      const memberClassSelect = document.getElementById('member-class');
+      let currentData = { users: [], classes: [], members: [], classTeachers: [] };
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+      }
+
+      function renderTable(containerId, columns, rows, emptyText) {
+        const container = document.getElementById(containerId);
+        if (!rows.length) {
+          container.innerHTML = `<p class="muted">${emptyText}</p>`;
+          return;
+        }
+        container.innerHTML = `<div class="table-wrap"><table><thead><tr>${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map((column) => `<td>${escapeHtml(row[column.key])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      }
+
+      function renderPage() {
+        renderTable('users-table', [
+          { key: 'id', label: 'ID' },
+          { key: 'username', label: 'Username' },
+          { key: 'role', label: 'Role' }
+        ], currentData.users, 'No users found.');
+
+        const membersByClass = currentData.members.reduce((result, member) => {
+          result[member.cid] = result[member.cid] || [];
+          result[member.cid].push(member.username);
+          return result;
+        }, {});
+        const teachersByClass = currentData.classTeachers.reduce((result, teacher) => {
+          result[teacher.cid] = result[teacher.cid] || [];
+          result[teacher.cid].push(teacher.teacher);
+          return result;
+        }, {});
+        renderTable('classes-table', [
+          { key: 'cid', label: 'Class ID' },
+          { key: 'teachers', label: 'Teachers' },
+          { key: 'members', label: 'Members' }
+        ], currentData.classes.map((classRow) => ({
+          ...classRow,
+          teachers: (teachersByClass[classRow.cid] || []).join(', ') || classRow.teacher || 'No teachers',
+          members: (membersByClass[classRow.cid] || []).join(', ') || 'No members'
+        })), 'No classes found.');
+
+        const teacherUsers = currentData.users.filter((user) => user.role === 'Teacher');
+        teacherSelect.innerHTML = teacherUsers.length
+          ? teacherUsers.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.username)} (${escapeHtml(user.role)})</option>`).join('')
+          : '<option value="">Add a teacher first</option>';
+        classTeacherSelect.innerHTML = teacherSelect.innerHTML;
+        teacherClassSelect.innerHTML = currentData.classes.length
+          ? currentData.classes.map((classRow) => `<option value="${escapeHtml(classRow.cid)}">Class ${escapeHtml(classRow.cid)}</option>`).join('')
+          : '<option value="">Add a class first</option>';
+        const memberUsers = currentData.users.filter((user) => user.role === 'User');
+        memberUserSelect.innerHTML = memberUsers.length
+          ? memberUsers.map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.username)}</option>`).join('')
+          : '<option value="">Add a user first</option>';
+        memberClassSelect.innerHTML = currentData.classes.length
+          ? currentData.classes.map((classRow) => `<option value="${escapeHtml(classRow.cid)}">Class ${escapeHtml(classRow.cid)} (${escapeHtml(classRow.teacher)})</option>`).join('')
+          : '<option value="">Add a class first</option>';
+      }
+
+      async function loadData() {
+        const response = await fetch('/api/admin-users-data', { credentials: 'same-origin' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to load admin data.');
+        currentData = data;
+        renderPage();
+      }
+
+      async function submitForm(form, endpoint, messageId, body) {
+        const message = document.getElementById(messageId);
+        const button = form.querySelector('button');
+        button.disabled = true;
+        message.textContent = '';
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Request failed.');
+          form.reset();
+          message.style.color = '#166534';
+          message.textContent = 'Saved.';
+          await loadData();
+        } catch (error) {
+          message.style.color = '#b91c1c';
+          message.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      userForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitForm(userForm, '/api/admin-users', 'user-message', {
+          username: userForm.username.value,
+          password: userForm.password.value,
+          role: userForm.role.value
+        });
+      });
+
+      classForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitForm(classForm, '/api/admin-classes', 'class-message', {
+          teacherId: teacherSelect.value
+        });
+      });
+
+      classTeacherForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitForm(classTeacherForm, '/api/admin-class-teachers', 'class-teacher-message', {
+          teacherId: classTeacherSelect.value,
+          classId: teacherClassSelect.value
+        });
+      });
+
+      memberForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitForm(memberForm, '/api/admin-class-members', 'member-message', {
+          userId: memberUserSelect.value,
+          classId: memberClassSelect.value
+        });
+      });
+
+      loadData().catch((error) => {
+        document.getElementById('users-table').textContent = error.message;
+        document.getElementById('classes-table').textContent = error.message;
+      });
+    </script>
+  </body>
+</html>

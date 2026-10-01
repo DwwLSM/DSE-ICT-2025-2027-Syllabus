@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Class Question Progress</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #202c39;
+        --muted: #647481;
+        --line: #d9e2e7;
+        --paper: #ffffff;
+        --canvas: #f1f5f4;
+        --accent: #116b62;
+        --accent-soft: #e3f1ed;
+        --warning: #9c5d14;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 28px 20px 48px;
+        color: var(--ink);
+        background: var(--canvas);
+        font-family: Arial, sans-serif;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 22px;
+      }
+      h1 { margin: 0; font-size: 25px; }
+      h2 { margin: 0; font-size: 18px; }
+      a { color: var(--accent); text-decoration: none; }
+      .panel {
+        padding: 20px;
+        border: 1px solid var(--line);
+        background: var(--paper);
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      label { font-weight: 700; }
+      select {
+        min-width: 180px;
+        padding: 9px 32px 9px 10px;
+        border: 1px solid #aebdc4;
+        border-radius: 4px;
+        background: #fff;
+        color: var(--ink);
+        font: inherit;
+      }
+      .summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        margin: 0 0 18px;
+        padding: 12px 14px;
+        background: var(--accent-soft);
+      }
+      .summary strong { font-size: 18px; }
+      .summary span { color: var(--muted); }
+      .table-wrap { overflow: auto; border: 1px solid var(--line); }
+      table { width: 100%; min-width: 680px; border-collapse: collapse; background: #fff; }
+      th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+      th { background: #edf2f3; font-size: 13px; }
+      tr:last-child td { border-bottom: 0; }
+      .student { min-width: 140px; font-weight: 700; }
+      .count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .question-list { min-width: 280px; }
+      .question-list ul { margin: 0; padding-left: 20px; }
+      .question-list li + li { margin-top: 6px; }
+      .question-id { color: var(--muted); font-family: monospace; font-size: 12px; }
+      .empty, .loading, .error { padding: 18px 0; color: var(--muted); }
+      .error { color: #a42e2e; }
+      @media (max-width: 600px) {
+        body { padding: 20px 12px 36px; }
+        .topbar { align-items: flex-start; }
+        h1 { font-size: 21px; }
+        .panel { padding: 14px; }
+        .controls { align-items: flex-start; flex-direction: column; }
+        select { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="topbar">
+        <h1>Class Question Progress</h1>
+        <nav><a href="/dashboard">Dashboard</a> | <a href="/logout">Log out</a></nav>
+      </header>
+      <section class="panel" aria-labelledby="progress-heading">
+        <div class="controls">
+          <label for="class-select">Class</label>
+          <select id="class-select" disabled aria-label="Select a class"></select>
+        </div>
+        <div id="progress-content" class="loading" role="status">Loading class progress...</div>
+      </section>
+    </main>
+
+    <script>
+      const classSelect = document.getElementById('class-select');
+      const content = document.getElementById('progress-content');
+
+      function escapeHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        })[character]);
+      }
+
+      function renderProgress(data) {
+        const completedByStudent = new Map();
+        (data.completedQuestions || []).forEach((entry) => {
+          if (!completedByStudent.has(entry.student_id)) completedByStudent.set(entry.student_id, []);
+          completedByStudent.get(entry.student_id).push(entry);
+        });
+
+        const students = data.students || [];
+        const completedCount = (data.completedQuestions || []).length;
+        const summary = `
+          <div class="summary">
+            <div><strong>${students.length}</strong> <span>students</span></div>
+            <div><strong>${completedCount}</strong> <span>completed question records</span></div>
+            <div><strong>${data.totalQuestions || 0}</strong> <span>questions in the bank</span></div>
+          </div>
+        `;
+
+        if (!students.length) {
+          content.innerHTML = summary + '<p class="empty">There are no students assigned to this class yet.</p>';
+          return;
+        }
+
+        const rows = students.map((student) => {
+          const questions = completedByStudent.get(student.id) || [];
+          const questionHtml = questions.length
+            ? '<ul>' + questions.map((question) => `<li><span class="question-id">${escapeHtml(question.question_id)}</span> ${escapeHtml(question.question)}</li>`).join('') + '</ul>'
+            : '<span class="empty">No questions completed yet.</span>';
+          return `
+            <tr>
+              <td class="student">${escapeHtml(student.username)}</td>
+              <td class="count">${Number(student.completed_count) || 0} / ${Number(data.totalQuestions) || 0}</td>
+              <td class="count">${Number(student.attempted_count) || 0}</td>
+              <td class="question-list">${questionHtml}</td>
+            </tr>
+          `;
+        }).join('');
+
+        content.innerHTML = summary + `
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Student</th><th>Completed</th><th>Attempted</th><th>Completed questions</th></tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      async function loadProgress(classId) {
+        content.className = 'loading';
+        content.textContent = 'Loading class progress...';
+        try {
+          const query = classId ? `?classId=${encodeURIComponent(classId)}` : '';
+          const response = await fetch('/api/teacher-progress' + query, { credentials: 'same-origin' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Unable to load class progress.');
+
+          if (!Array.isArray(data.classes) || !data.classes.length) {
+            classSelect.disabled = true;
+            content.className = 'empty';
+            content.textContent = 'No classes are assigned to your teacher account yet.';
+            return;
+          }
+
+          classSelect.innerHTML = data.classes.map((classRow) =>
+            `<option value="${escapeHtml(classRow.cid)}">Class ${escapeHtml(classRow.cid)}</option>`
+          ).join('');
+          classSelect.disabled = false;
+          classSelect.value = String(data.selectedClassId);
+          content.className = '';
+          renderProgress(data);
+        } catch (error) {
+          content.className = 'error';
+          content.textContent = error.message;
+        }
+      }
+
+      classSelect.addEventListener('change', () => loadProgress(classSelect.value));
+      loadProgress('');
+    </script>
+  </body>
+</html>
