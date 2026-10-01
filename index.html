@@ -379,7 +379,12 @@ function verifyAdminPw(pw,cb){
 /* ---------- app state ---------- */
 var cur={topic:"python",diff:"basic",mode:"immediate",list:[],i:0,results:[],sel:null,done:false,courseId:null};
 var totalQ=0;
-(function(){ for(var a=0;a<TOPICS.length;a++){ for(var b=0;b<DORD.length;b++){ totalQ+=BANK[TOPICS[a]][DORD[b]].length; } } })();
+function levelsForTopic(topic){
+  var levels=DORD.slice();
+  if(topic==="mastersql") levels.push("mutation");
+  return levels;
+}
+(function(){ for(var a=0;a<TOPICS.length;a++){ var levels=levelsForTopic(TOPICS[a]); for(var b=0;b<levels.length;b++){ totalQ+=BANK[TOPICS[a]][levels[b]].length; } } })();
 
 /* ---------- screens ---------- */
 var SCREENS=["setup","quiz","result","review","admin"];
@@ -937,7 +942,8 @@ function buildStats(){
   var parts=[];
   for(var a=0;a<TOPICS.length;a++){
     var n=0;
-    for(var b=0;b<DORD.length;b++){ n+=BANK[TOPICS[a]][DORD[b]].length; }
+    var levels=levelsForTopic(TOPICS[a]);
+    for(var b=0;b<levels.length;b++){ n+=BANK[TOPICS[a]][levels[b]].length; }
     parts.push(TINFO[TOPICS[a]].label+" "+n);
   }
   return "Total "+totalQ+" questions — "+parts.join(" · ");
@@ -990,8 +996,9 @@ function renderAdmin(){
   var search=($("adminsearch").value||"").toLowerCase();
   var shown=0;
   for(var a=0;a<TOPICS.length;a++){
-    for(var b=0;b<DORD.length;b++){
-      var t=TOPICS[a], d=DORD[b];
+    var levels=levelsForTopic(TOPICS[a]);
+    for(var b=0;b<levels.length;b++){
+      var t=TOPICS[a], d=levels[b];
       var src=BANK[t][d], arr=[];
       for(var k=0;k<src.length;k++){
         var qq=src[k];
