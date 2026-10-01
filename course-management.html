@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manage Courses</title>
+    <style>
+      :root {
+        --ink: #172033;
+        --muted: #64748b;
+        --line: #dbe3ef;
+        --paper: #ffffff;
+        --blue: #2563eb;
+        --blue-dark: #1d4ed8;
+        --background: #eef3f8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 32px 20px 48px;
+        font-family: Arial, sans-serif;
+        background: var(--background);
+        color: var(--ink);
+      }
+      .wrap { max-width: 1100px; margin: 0 auto; }
+      .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 22px; }
+      .topbar h1 { margin: 0; }
+      .topbar a { color: var(--blue-dark); text-decoration: none; font-weight: 700; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 22px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      }
+      h2 { margin-top: 0; }
+      label { display: block; margin: 12px 0 6px; font-weight: 700; }
+      input, textarea, select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 7px;
+        background: #fff;
+        font: inherit;
+      }
+      textarea { min-height: 100px; resize: vertical; }
+      button {
+        margin-top: 16px;
+        padding: 10px 15px;
+        border: 0;
+        border-radius: 7px;
+        background: var(--blue);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:hover { background: var(--blue-dark); }
+      button:disabled { opacity: .65; cursor: wait; }
+      .message { min-height: 20px; margin: 12px 0 0; color: #991b1b; font-weight: 700; }
+      .list { list-style: none; padding: 0; margin: 0; }
+      .list li {
+        background: #f8fafc;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 10px;
+      }
+      .selected-question-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+      .selected-question-row {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #f8fafc;
+        cursor: grab;
+      }
+      .selected-question-row.dragging { opacity: .45; }
+      .drag-handle { color: var(--muted); font-size: 18px; text-align: center; user-select: none; }
+      .question-meta { min-width: 0; }
+      .question-title { overflow-wrap: anywhere; }
+      .remove-question { margin: 0; padding: 6px 9px; background: #fee2e2; color: #991b1b; }
+      .remove-question:hover { background: #fecaca; }
+      .selected-empty { margin: 12px 0 0; color: var(--muted); }
+      .muted { color: var(--muted); }
+      @media (max-width: 760px) {
+        .grid { grid-template-columns: 1fr; }
+        .topbar { flex-direction: column; align-items: flex-start; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="topbar">
+        <h1>Course Management</h1>
+        <nav><a href="/dashboard">Dashboard</a> &nbsp;|&nbsp; <a href="/logout">Logout</a></nav>
+      </header>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Create course</h2>
+          <form id="create-course-form">
+            <label for="course-title">Title</label>
+            <input id="course-title" name="title" required />
+            <label for="course-description">Description</label>
+            <textarea id="course-description" name="description"></textarea>
+            <label for="course-visibility">Visibility</label>
+            <select id="course-visibility" name="visibility">
+              <option value="private">Private: only assigned classes</option>
+              <option value="public">Public: teachers can clone it</option>
+            </select>
+            <button type="submit">Create course</button>
+          </form>
+          <p id="create-message" class="message" role="status"></p>
+        </section>
+
+        <section class="card">
+          <h2>Assign to course</h2>
+          <label for="course-select">Course</label>
+          <select id="course-select" required>
+            <option value="">Loading courses...</option>
+          </select>
+
+          <label for="question-select">Questions</label>
+          <select id="question-select" multiple size="12"></select>
+          <button id="add-questions-btn" type="button">Add selected questions</button>
+          <h3 style="margin:18px 0 0;font-size:1rem;">Selected questions</h3>
+          <p class="muted" style="margin:5px 0 0;">Drag rows to change the course order.</p>
+          <div id="selected-question-list" class="selected-question-list"></div>
+
+          <label for="class-select">Classes</label>
+          <select id="class-select" multiple size="10"></select>
+          <button id="assign-classes-btn" type="button">Assign selected classes</button>
+          <button id="publish-course-btn" type="button">Publish selected course</button>
+        </section>
+
+        <section class="card" style="grid-column:1 / -1;">
+          <h2>Course list</h2>
+          <div id="course-list" class="muted">Loading courses...</div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const createCourseForm = document.getElementById('create-course-form');
+      const courseSelect = document.getElementById('course-select');
+      const questionSelect = document.getElementById('question-select');
+      const classSelect = document.getElementById('class-select');
+      const createMessage = document.getElementById('create-message');
+      const courseList = document.getElementById('course-list');
+      const publishButton = document.getElementById('publish-course-btn');
+      const selectedQuestionList = document.getElementById('selected-question-list');
+
+      let courses = [];
+      let allQuestions = [];
+      let allClasses = [];
+      let draggedQuestionId = null;
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+      }
+
+      async function loadCourses() {
+        const response = await fetch('/api/course-management', { credentials: 'same-origin' });
+        const data = await response.json();
+        if (!response.ok) {
+          courseList.innerHTML = '<p class="muted">' + escapeHtml(data.error || 'Unable to load courses.') + '</p>';
+          return;
+        }
+        courses = data || [];
+        courseSelect.innerHTML = courses.length
+          ? courses.map((course) => `<option value="${course.id}">${escapeHtml(course.title)}</option>`).join('')
+          : '<option value="">No courses yet</option>';
+        updatePublishButton();
+        renderSelectedQuestions();
+        courseList.innerHTML = courses.length
+          ? '<ul class="list">' + courses.map((course) => `
+              <li>
+                <strong>${escapeHtml(course.title)}</strong><br>
+                <span class="muted">${escapeHtml(course.description || 'No description')}</span><br>
+                <span class="muted">Questions: ${Number(course.questionCount || 0)} · Classes: ${course.classes ? course.classes.length : 0} · ${course.visibility === 'public' ? 'Public' : 'Private'} · Published: ${course.published ? 'Yes' : 'No'}</span>
+                ${course.canClone ? `<br><button type="button" data-clone-course="${course.id}">Clone as private draft</button>` : ''}
+              </li>
+            `).join('') + '</ul>'
+          : '<p class="muted">No courses yet.</p>';
+      }
+
+      function selectedCourse() {
+        return courses.find((course) => String(course.id) === courseSelect.value);
+      }
+
+      function renderSelectedQuestions() {
+        const course = selectedCourse();
+        if (!course || !course.questions || !course.questions.length) {
+          selectedQuestionList.innerHTML = '<p class="selected-empty">No questions selected.</p>';
+          return;
+        }
+        selectedQuestionList.innerHTML = course.questions.map((question, index) => `
+          <div class="selected-question-row" draggable="true" data-question-id="${escapeHtml(question.question_id)}">
+            <span class="drag-handle" title="Drag to reorder">☷</span>
+            <div class="question-meta">
+              <strong>${index + 1}. ${escapeHtml(question.category)} / ${escapeHtml(question.level)}</strong>
+              <div class="question-title">${escapeHtml(question.question)}</div>
+              <div class="muted">${escapeHtml(question.question_id)}</div>
+            </div>
+            ${course.canEdit ? `<button class="remove-question" type="button" data-remove-question="${escapeHtml(question.question_id)}">Remove</button>` : ''}
+          </div>
+        `).join('');
+        if (!course.canEdit) return;
+        selectedQuestionList.querySelectorAll('.selected-question-row').forEach((row) => {
+          row.addEventListener('dragstart', () => {
+            draggedQuestionId = row.dataset.questionId;
+            row.classList.add('dragging');
+          });
+          row.addEventListener('dragend', () => {
+            draggedQuestionId = null;
+            row.classList.remove('dragging');
+          });
+          row.addEventListener('dragover', (event) => event.preventDefault());
+          row.addEventListener('drop', () => reorderQuestions(row.dataset.questionId));
+        });
+      }
+
+      async function persistQuestionOrder(questionIds) {
+        const courseId = courseSelect.value;
+        const response = await fetch(`/api/courses/${courseId}/questions`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questionIds })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to save question order.');
+      }
+
+      async function reorderQuestions(targetQuestionId) {
+        const course = selectedCourse();
+        if (!course || !draggedQuestionId || draggedQuestionId === targetQuestionId) return;
+        const oldIndex = course.questions.findIndex((question) => question.question_id === draggedQuestionId);
+        const newIndex = course.questions.findIndex((question) => question.question_id === targetQuestionId);
+        if (oldIndex < 0 || newIndex < 0) return;
+        const nextQuestions = course.questions.slice();
+        const [moved] = nextQuestions.splice(oldIndex, 1);
+        nextQuestions.splice(newIndex, 0, moved);
+        course.questions = nextQuestions;
+        renderSelectedQuestions();
+        try {
+          await persistQuestionOrder(nextQuestions.map((question) => question.question_id));
+          createMessage.textContent = 'Question order saved.';
+        } catch (error) {
+          createMessage.textContent = error.message;
+          await loadCourses();
+        }
+      }
+
+      function updatePublishButton() {
+        const selectedCourse = courses.find((course) => String(course.id) === courseSelect.value);
+        publishButton.disabled = !selectedCourse || Boolean(selectedCourse.published);
+        publishButton.textContent = selectedCourse && selectedCourse.published ? 'Course published' : 'Publish selected course';
+      }
+
+      async function loadQuestions() {
+        const response = await fetch('/api/questions', { credentials: 'same-origin' });
+        const data = await response.json();
+        if (!response.ok) return;
+        allQuestions = data || [];
+        questionSelect.innerHTML = allQuestions.map((question) => `<option value="${escapeHtml(question.id)}">${escapeHtml(question.category)} / ${escapeHtml(question.level)} / ${escapeHtml(question.question)}</option>`).join('');
+      }
+
+      async function loadClasses() {
+        const response = await fetch('/api/teacher-class-data', { credentials: 'same-origin' });
+        const data = await response.json();
+        if (!response.ok) return;
+        allClasses = data.classes || [];
+        classSelect.innerHTML = allClasses.map((item) => `<option value="${item.cid}">Class ${escapeHtml(item.cid)}${item.teacher_name ? ' (' + escapeHtml(item.teacher_name) + ')' : ''}</option>`).join('');
+      }
+
+      createCourseForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(createCourseForm);
+        const payload = {
+          title: formData.get('title'),
+          description: formData.get('description'),
+          visibility: formData.get('visibility')
+        };
+        createMessage.textContent = '';
+        const response = await fetch('/api/course-management', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          createMessage.textContent = data.error || 'Unable to create course.';
+          return;
+        }
+        createCourseForm.reset();
+        createMessage.textContent = 'Course created successfully.';
+        await loadCourses();
+        if (courseSelect.value === '') {
+          const updated = await fetch('/api/course-management', { credentials: 'same-origin' });
+          const courseData = await updated.json();
+          courses = courseData || [];
+          if (courses.length) {
+            courseSelect.value = String(courses[0].id);
+          }
+        }
+      });
+
+      courseList.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-clone-course]');
+        if (!button) return;
+        button.disabled = true;
+        const response = await fetch(`/api/courses/${button.dataset.cloneCourse}/clone`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          createMessage.textContent = data.error || 'Unable to clone course.';
+          button.disabled = false;
+          return;
+        }
+        createMessage.textContent = `Cloned "${data.course.title}" as a private draft.`;
+        await loadCourses();
+        courseSelect.value = String(data.course.id);
+        updatePublishButton();
+        renderSelectedQuestions();
+      });
+
+      selectedQuestionList.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-remove-question]');
+        if (!button) return;
+        const course = selectedCourse();
+        if (!course) return;
+        button.disabled = true;
+        const response = await fetch(`/api/courses/${course.id}/questions/${encodeURIComponent(button.dataset.removeQuestion)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin'
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          createMessage.textContent = data.error || 'Unable to remove question.';
+          button.disabled = false;
+          return;
+        }
+        createMessage.textContent = 'Question removed from course.';
+        await loadCourses();
+      });
+
+      document.getElementById('add-questions-btn').addEventListener('click', async () => {
+        const courseId = courseSelect.value;
+        const selected = Array.from(questionSelect.selectedOptions).map((option) => option.value);
+        if (!courseId) {
+          createMessage.textContent = 'Choose a course first.';
+          return;
+        }
+        if (!selected.length) {
+          createMessage.textContent = 'Choose at least one question to add.';
+          return;
+        }
+        createMessage.textContent = '';
+        const response = await fetch(`/api/courses/${courseId}/questions`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questionIds: selected })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          createMessage.textContent = data.error || 'Unable to add questions.';
+          return;
+        }
+        createMessage.textContent = 'Questions added to course.';
+        await loadCourses();
+      });
+
+      document.getElementById('assign-classes-btn').addEventListener('click', async () => {
+        const courseId = courseSelect.value;
+        const selected = Array.from(classSelect.selectedOptions).map((option) => Number(option.value));
+        if (!courseId) {
+          createMessage.textContent = 'Choose a course first.';
+          return;
+        }
+        if (!selected.length) {
+          createMessage.textContent = 'Choose at least one class.';
+          return;
+        }
+        createMessage.textContent = '';
+        const response = await fetch(`/api/courses/${courseId}/classes`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ classIds: selected })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          createMessage.textContent = data.error || 'Unable to assign classes.';
+          return;
+        }
+        createMessage.textContent = 'Classes assigned to course.';
+        await loadCourses();
+      });
+
+      courseSelect.addEventListener('change', () => {
+        updatePublishButton();
+        renderSelectedQuestions();
+      });
+      publishButton.addEventListener('click', async () => {
+        const courseId = courseSelect.value;
+        if (!courseId) return;
+        createMessage.textContent = '';
+        const response = await fetch(`/api/courses/${courseId}/publish`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          createMessage.textContent = data.error || 'Unable to publish course.';
+          return;
+        }
+        createMessage.textContent = 'Course published and available to its assigned classes.';
+        await loadCourses();
+      });
+
+      loadCourses();
+      loadQuestions();
+      loadClasses();
+    </script>
+  </body>
+</html>

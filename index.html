@@ -25,6 +25,8 @@ header{padding-top:60px}
 .adminbtn{top:12px;right:12px}
 }
 main{max-width:900px;margin:0 auto;padding:26px 16px 60px}
+#home-layout{grid-template-columns:minmax(230px,300px) minmax(0,1fr)!important}
+@media(max-width:800px){#home-layout{grid-template-columns:minmax(0,1fr)!important}#courses-panel{position:static!important}}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:24px;box-shadow:0 2px 10px rgba(15,23,42,.06);margin-bottom:16px}
 h2{font-size:1.2rem;margin-bottom:6px}
 .sub{color:var(--muted);font-size:.9rem;margin-bottom:16px}
@@ -104,9 +106,15 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;padding:16px;border
   <p>2025+ syllabus — Python · SQL (multi-table joins) · Web Dev · Core &amp; Elective Algorithms · ICT Concepts</p>
 </header>
 
-<main>
+<main id="home-layout" style="display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;max-width:1200px;align-items:start;">
+  <aside class="card" id="courses-panel" style="padding:18px;position:sticky;top:18px;">
+    <h2 style="font-size:1.1rem;margin-bottom:10px;">Courses</h2>
+    <p class="sub" id="course-panel-status">Loading your assigned courses...</p>
+    <div id="course-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+  </aside>
+
 <!-- SETUP -->
-<section id="setup">
+<section id="setup" style="min-width:0;">
   <div class="card">
     <h2>Choose your practice set</h2>
     <p class="sub" id="bankcount"></p>
@@ -242,6 +250,22 @@ function flat(s){ return norm(s).replace(/\s+/g," "); }
 function squash(s){ return flat(s).replace(/ /g,""); }
 
 var TOPICS=["python","sql","mastersql","web","corealgo","algo","theory"];
+var BANK_QUESTION_LOOKUP = Object.create(null);
+(function(){
+  var topics = Object.keys(BANK || {});
+  for (var i = 0; i < topics.length; i++) {
+    var topicName = topics[i];
+    var levels = Object.keys(BANK[topicName] || {});
+    for (var j = 0; j < levels.length; j++) {
+      var list = BANK[topicName][levels[j]];
+      if (!Array.isArray(list)) continue;
+      for (var k = 0; k < list.length; k++) {
+        var item = list[k];
+        if (item && item.id) BANK_QUESTION_LOOKUP[item.id] = item;
+      }
+    }
+  }
+})();
 var TINFO={
  python:{label:"Python",cls:"bpy"},
  sql:{label:"SQL & Databases",cls:"bsq"},
@@ -323,7 +347,7 @@ function verifyAdminPw(pw,cb){
 })();
 
 /* ---------- app state ---------- */
-var cur={topic:"python",diff:"basic",mode:"immediate",list:[],i:0,results:[],sel:null,done:false};
+var cur={topic:"python",diff:"basic",mode:"immediate",list:[],i:0,results:[],sel:null,done:false,courseId:null};
 var totalQ=0;
 (function(){ for(var a=0;a<TOPICS.length;a++){ for(var b=0;b<DORD.length;b++){ totalQ+=BANK[TOPICS[a]][DORD[b]].length; } } })();
 
@@ -337,6 +361,85 @@ function updateBest(){
   var v=loadBest(k);
   var name=(cur.topic==="mixed")?"Mixed":TINFO[cur.topic].label;
   $("bestline").textContent = v ? ("🏆 Best score at "+DL[cur.diff]+" level in "+name+": "+v+"%") : "";
+}
+
+async function loadStudentCourses(){
+  var status = document.getElementById('course-panel-status');
+  var list = document.getElementById('course-list');
+  status.textContent = 'Loading your assigned courses...';
+  list.innerHTML = '';
+
+  try {
+    var response = await fetch('/api/courses', { credentials: 'same-origin' });
+    if (!response.ok) {
+      var data = await response.json().catch(function(){ return {}; });
+      status.textContent = data.error ? data.error : 'Please log in to see your courses.';
+      list.innerHTML = '<div class="sub">No assigned courses yet.</div>';
+      return;
+    }
+    var courses = await response.json();
+    if (!courses.length) {
+      status.textContent = 'No assigned courses yet.';
+      list.innerHTML = '<div class="sub">Your teacher or admin can assign a course here.</div>';
+      return;
+    }
+    status.textContent = 'Your assigned courses';
+    list.innerHTML = courses.map(function(course){
+      var progress = course.currentPercentage || 0;
+      return '<div class="card" style="padding:12px;border-radius:12px;background:#fff;box-shadow:none;border:1px solid var(--bd);margin:0;">' +
+        '<div style="font-weight:700;margin-bottom:6px;">' + esc(course.title || 'Untitled course') + '</div>' +
+        '<div class="sub" style="margin:0 0 8px;">' + esc(course.description || 'No description') + '</div>' +
+        '<div style="font-size:.8rem;color:var(--muted);margin-bottom:8px;">' + (course.attemptedCount || 0) + ' / ' + (course.totalQuestions || 0) + ' attempted · ' + (course.completedCount || 0) + ' complete · ' + progress + '%</div>' +
+        '<button class="btn bp" type="button" style="padding:8px 12px;font-size:.82rem;width:100%;" data-course-start="' + course.id + '">Start / Resume</button>' +
+        '</div>';
+    }).join('');
+
+    var buttons = document.querySelectorAll('[data-course-start]');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function(){
+        var id = parseInt(this.getAttribute('data-course-start'), 10);
+        if (id) startCourse(id);
+      });
+    }
+  } catch (error) {
+    status.textContent = 'Could not load courses.';
+    list.innerHTML = '<div class="sub">Please refresh or log in again.</div>';
+  }
+}
+
+async function startCourse(courseId){
+  try {
+    var response = await fetch('/api/courses/' + encodeURIComponent(courseId), { credentials: 'same-origin' });
+    var course = await response.json();
+    if (!response.ok) {
+      throw new Error(course.error || 'Unable to load this course.');
+    }
+
+    var questionList = Array.isArray(course.questions) ? course.questions : [];
+    var mapped = [];
+    for (var i = 0; i < questionList.length; i++) {
+      var questionId = questionList[i] && questionList[i].id;
+      var bankQuestion = questionId ? BANK_QUESTION_LOOKUP[questionId] : null;
+      if (bankQuestion) mapped.push(Object.assign({}, bankQuestion, { level: questionList[i].level }));
+    }
+
+    if (!mapped.length) {
+      throw new Error('This course has no valid questions yet.');
+    }
+
+    cur.courseId = courseId;
+    cur.mode = 'immediate';
+    var firstUnfinished = questionList.findIndex(function(question){ return !question.is_completed; });
+    cur.list = firstUnfinished < 0 ? mapped : mapped.slice(firstUnfinished);
+    cur.i = 0;
+    cur.results = [];
+    cur.done = false;
+    cur.sel = null;
+    show('quiz');
+    renderQ();
+  } catch (error) {
+    alert(error.message || 'Unable to start the selected course.');
+  }
 }
 
 function bindSetup(){
@@ -370,6 +473,7 @@ function bindSetup(){
 
 /* ---------- quiz flow ---------- */
 function startQuiz(){
+  cur.courseId=null;
   var pool=[];
   var topics=(cur.topic==="mixed")?TOPICS.slice():[cur.topic];
   for(var i=0;i<topics.length;i++){
@@ -467,6 +571,23 @@ async function saveQuestionProgress(q,isCorrect){
     }
   }catch(error){
     console.warn('Could not save question progress.',error);
+  }
+}
+
+async function saveCourseProgress(q,isCorrect){
+  if(!q || !q.id || !cur.courseId) return;
+  try{
+    var response=await fetch('/api/course-answer', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ courseId: cur.courseId, questionId: q.id, isCorrect: Boolean(isCorrect) })
+    });
+    if(!response.ok && response.status!==401){
+      console.warn('Could not save course progress.');
+    }
+  }catch(error){
+    console.warn('Could not save course progress.',error);
   }
 }
 
@@ -589,7 +710,16 @@ async function submitAnswer(){
   }
 
   if(q.tp !== 'mastersql') await saveQuestionProgress(q,ev.ok);
-  cur.results.push({q:q,ua:ua,ok:ev.ok});
+  if(cur.courseId && q && q.id){
+    await saveCourseProgress(q, ev.ok);
+    await loadStudentCourses();
+  }
+  var previousResult = cur.results.length ? cur.results[cur.results.length - 1] : null;
+  if(previousResult && previousResult.q === q){
+    cur.results[cur.results.length - 1] = {q:q,ua:ua,ok:ev.ok};
+  }else{
+    cur.results.push({q:q,ua:ua,ok:ev.ok});
+  }
   cur.done=true;
   $("btnsubmit").disabled=true;
   $("pbar").style.width=((cur.i+1)/cur.list.length*100)+"%";
@@ -624,7 +754,7 @@ async function submitAnswer(){
       $("btnretry").classList.add("hide");
     }else{
       $("btnnext").classList.add("hide");
-      if(q.tp === 'mastersql'){ $("btnretry").classList.remove("hide"); }
+      if(cur.courseId || q.tp === 'mastersql'){ $("btnretry").classList.remove("hide"); }
     }
   } else {
     $("btnsubmit").classList.add("hide");
@@ -866,6 +996,7 @@ try{
   $("bankcount").textContent="📚 "+totalQ+" questions aligned with the 2025+ HKDSE ICT syllabus — every one with step-by-step justification.";
   bindSetup();
   updateBest();
+  loadStudentCourses();
   $("btnstart").onclick=startQuiz;
   $("btnsubmit").onclick=submitAnswer;
   $("btnretry").onclick=retryAnswer;

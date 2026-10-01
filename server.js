@@ -105,6 +105,51 @@ function requireTeacher(req, res, next) {
   return res.status(403).send('Teacher access only.');
 }
 
+async function getCourseSummaryForUser(userId, courseId) {
+  const totalQuestionsRow = await getAppRows(
+    'SELECT COUNT(*) AS total FROM CourseQuestions WHERE course_id = ?',
+    [courseId]
+  );
+  const progressRows = await getAppRows(
+    `SELECT question_id, attempts, is_completed, last_answer_correct, last_attempt_at
+     FROM CourseProgress
+     WHERE user_id = ? AND course_id = ?`,
+    [userId, courseId]
+  );
+
+  const totalQuestions = Number(totalQuestionsRow[0]?.total || 0);
+  const attemptedCount = progressRows.filter((row) => Number(row.attempts || 0) > 0).length;
+  const completedCount = progressRows.filter((row) => Number(row.is_completed || 0) === 1).length;
+  const correctCount = progressRows.filter((row) => Number(row.last_answer_correct || 0) === 1).length;
+  const latestStatus = progressRows.length ? progressRows.reduce((latest, row) => {
+    if (!latest || new Date(row.last_attempt_at || 0) > new Date(latest.last_attempt_at || 0)) {
+      return row;
+    }
+    return latest;
+  }, null) : null;
+
+  return {
+    totalQuestions,
+    attemptedCount,
+    completedCount,
+    correctCount,
+    currentPercentage: totalQuestions ? Math.round((correctCount / totalQuestions) * 100) : 0,
+    lastStatus: latestStatus ? { question_id: latestStatus.question_id, is_completed: Number(latestStatus.is_completed || 0), last_answer_correct: Number(latestStatus.last_answer_correct || 0), attempts: Number(latestStatus.attempts || 0) } : null
+  };
+}
+
+async function userCanAccessCourse(userId, courseId) {
+  const rows = await getAppRows(
+    `SELECT 1
+     FROM CourseClasses cc
+     JOIN ClassMembers cm ON cm.cid = cc.class_id
+     WHERE cc.course_id = ? AND cm.id = ?
+     LIMIT 1`,
+    [courseId, userId]
+  );
+  return rows.length > 0;
+}
+
 function getDatabaseTables(database) {
   return new Promise((resolve, reject) => {
     database.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name", (err, rows) => {
@@ -418,7 +463,58 @@ async function initializeDatabase() {
       question_type TEXT NOT NULL
     )
   `);
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS Courses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      visibility TEXT NOT NULL DEFAULT 'private',
+      published INTEGER NOT NULL DEFAULT 0,
+      owner_user_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (owner_user_id) REFERENCES users(id)
+    )
+  `);
+  const courseColumns = await getAppRows('PRAGMA table_info(Courses)');
+  if (!courseColumns.some((column) => column.name === 'visibility')) {
+    await runAppSql("ALTER TABLE Courses ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'");
+  }
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS CourseQuestions (
+      course_id INTEGER NOT NULL,
+      question_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (course_id, question_id),
+      FOREIGN KEY (course_id) REFERENCES Courses(id),
+      FOREIGN KEY (question_id) REFERENCES Questions(question_id)
+    )
+  `);
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS CourseClasses (
+      course_id INTEGER NOT NULL,
+      class_id INTEGER NOT NULL,
+      PRIMARY KEY (course_id, class_id),
+      FOREIGN KEY (course_id) REFERENCES Courses(id),
+      FOREIGN KEY (class_id) REFERENCES Classes(cid)
+    )
+  `);
+  await runAppSql(`
+    CREATE TABLE IF NOT EXISTS CourseProgress (
+      user_id INTEGER NOT NULL,
+      course_id INTEGER NOT NULL,
+      question_id TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      is_completed INTEGER NOT NULL DEFAULT 0,
+      last_answer_correct INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, course_id, question_id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (course_id) REFERENCES Courses(id),
+      FOREIGN KEY (question_id) REFERENCES Questions(question_id)
+    )
+  `);
   await seedQuestionRegistry();
+  await ensureDemoCourse();
   await migrateQuestionProgress();
 }
 
@@ -562,6 +658,578 @@ const MASTER_SQL_QUESTIONS = ([]
     tip: item.tip
   })));
 
+async function ensureDemoCourse() {
+  const existing = await getAppRows('SELECT id FROM Courses WHERE title = ? LIMIT 1', ['Master SQL Demo']);
+  if (existing.length) {
+    const courseId = existing[0].id;
+    const existingQuestions = await getAppRows('SELECT question_id FROM CourseQuestions WHERE course_id = ?', [courseId]);
+    const questionIds = existingQuestions.map((row) => row.question_id);
+    for (let i = 0; i < MASTER_SQL_QUESTIONS.length; i += 1) {
+      const question = MASTER_SQL_QUESTIONS[i];
+      if (!question || !question.id || questionIds.includes(question.id)) {
+        continue;
+      }
+      await runAppSql(
+        'INSERT INTO CourseQuestions (course_id, question_id, position) VALUES (?, ?, ?)',
+        [courseId, question.id, i]
+      );
+    }
+    await runAppSql("UPDATE Courses SET published = 1, visibility = 'public' WHERE id = ?", [courseId]);
+    return courseId;
+  }
+
+  const owner = await getAppRows('SELECT id FROM users WHERE username = ? LIMIT 1', [adminUsername]);
+  const ownerId = owner.length ? owner[0].id : 1;
+  const result = await runAppSql(
+    "INSERT INTO Courses (title, description, visibility, published, owner_user_id) VALUES (?, ?, 'public', 1, ?)",
+    ['Master SQL Demo', 'A demo course covering all Master SQL questions.', ownerId]
+  );
+  const courseId = result.lastID;
+  for (let i = 0; i < MASTER_SQL_QUESTIONS.length; i += 1) {
+    const question = MASTER_SQL_QUESTIONS[i];
+    if (!question || !question.id) {
+      continue;
+    }
+    await runAppSql(
+      'INSERT OR IGNORE INTO CourseQuestions (course_id, question_id, position) VALUES (?, ?, ?)',
+      [courseId, question.id, i]
+    );
+  }
+  return courseId;
+}
+
+async function recordCourseProgress(userId, courseId, questionId, isCorrect) {
+  const courseRows = await getAppRows('SELECT id FROM Courses WHERE id = ?', [courseId]);
+  if (!courseRows.length) {
+    throw new Error('Course not found.');
+  }
+  const questionRows = await getAppRows('SELECT question_id FROM Questions WHERE question_id = ?', [questionId]);
+  if (!questionRows.length) {
+    throw new Error('Question not found in course catalog.');
+  }
+
+  return new Promise((resolve, reject) => {
+    db.run(`
+      INSERT INTO CourseProgress (
+        user_id, course_id, question_id, attempts, is_completed, last_answer_correct, last_attempt_at
+      ) VALUES (?, ?, ?, 1, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, course_id, question_id) DO UPDATE SET
+        attempts = CourseProgress.attempts + 1,
+        is_completed = MAX(CourseProgress.is_completed, excluded.is_completed),
+        last_answer_correct = excluded.last_answer_correct,
+        last_attempt_at = CURRENT_TIMESTAMP
+    `, [userId, courseId, questionId, isCorrect ? 1 : 0, isCorrect ? 1 : 0], (error) => {
+      if (error) return reject(error);
+      resolve();
+    });
+  });
+}
+
+app.get('/api/questions', requireLogin, async (req, res) => {
+  try {
+    const rows = Array.from(QUESTIONS_BY_ID.entries()).map(([questionId, question]) => ({
+      id: questionId,
+      question: question.q || question.question || question.title || questionId,
+      category: question.category,
+      level: question.level,
+      question_type: question.t || 'unknown'
+    }));
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/courses', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const rows = await getAppRows(`
+      SELECT DISTINCT c.id, c.title, c.description, c.published, c.owner_user_id, u.username AS owner_name,
+        COUNT(DISTINCT cq.question_id) AS total_questions
+      FROM Courses c
+      JOIN CourseClasses cc ON cc.course_id = c.id
+      JOIN ClassMembers cm ON cm.cid = cc.class_id
+      LEFT JOIN CourseQuestions cq ON cq.course_id = c.id
+      LEFT JOIN users u ON u.id = c.owner_user_id
+      WHERE cm.id = ? AND c.published = 1
+      GROUP BY c.id, c.title, c.description, c.published, c.owner_user_id, u.username
+      ORDER BY c.id DESC
+    `, [userId]);
+
+    const enriched = await Promise.all(rows.map(async (course) => {
+      const summary = await getCourseSummaryForUser(userId, course.id);
+      return {
+        id: course.id,
+        title: course.title,
+        description: course.description || '',
+        published: Boolean(course.published),
+        owner_user_id: course.owner_user_id,
+        owner_name: course.owner_name || 'Unknown',
+        totalQuestions: Number(course.total_questions || summary.totalQuestions || 0),
+        attemptedCount: summary.attemptedCount,
+        completedCount: summary.completedCount,
+        correctCount: summary.correctCount,
+        currentPercentage: summary.currentPercentage,
+        lastStatus: summary.lastStatus
+      };
+    }));
+
+    res.json(enriched);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/courses/:courseId', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const courseId = Number(req.params.courseId);
+    const courseRows = await getAppRows(`
+      SELECT c.*, u.username AS owner_name
+      FROM Courses c
+      LEFT JOIN users u ON u.id = c.owner_user_id
+      WHERE c.id = ? AND c.published = 1
+    `, [courseId]);
+
+    if (!courseRows.length) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+
+    if (!(await userCanAccessCourse(userId, courseId))) {
+      return res.status(403).json({ error: 'You are not assigned to this course.' });
+    }
+
+    const course = courseRows[0];
+    const questions = await getAppRows(`
+      SELECT cq.question_id, q.question, q.category, q.level, q.question_type,
+        COALESCE(cp.is_completed, 0) AS is_completed,
+        COALESCE(cp.attempts, 0) AS attempts
+      FROM CourseQuestions cq
+      JOIN Questions q ON q.question_id = cq.question_id
+      LEFT JOIN CourseProgress cp ON cp.course_id = cq.course_id
+        AND cp.question_id = cq.question_id AND cp.user_id = ?
+      WHERE cq.course_id = ?
+      ORDER BY cq.position, cq.question_id
+    `, [userId, courseId]);
+
+    const summary = await getCourseSummaryForUser(userId, courseId);
+    return res.json({
+      ...course,
+      totalQuestions: Number(summary.totalQuestions || questions.length || 0),
+      attemptedCount: summary.attemptedCount,
+      completedCount: summary.completedCount,
+      correctCount: summary.correctCount,
+      currentPercentage: summary.currentPercentage,
+      questions: questions.map((question) => ({
+        id: question.question_id,
+        question: question.question,
+        category: question.category,
+        level: question.level,
+        question_type: question.question_type,
+        is_completed: Number(question.is_completed),
+        attempts: Number(question.attempts)
+      }))
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/course-answer', requireApiLogin, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const courseId = Number(req.body && req.body.courseId);
+    const questionId = String(req.body && req.body.questionId || '');
+    const isCorrect = Boolean(req.body && req.body.isCorrect === true);
+
+    if (!Number.isInteger(courseId) || courseId < 1) {
+      return res.status(400).json({ error: 'A valid course ID is required.' });
+    }
+    if (!questionId || !QUESTIONS_BY_ID.has(questionId)) {
+      return res.status(404).json({ error: 'Question not found.' });
+    }
+    if (!(await userCanAccessCourse(userId, courseId))) {
+      return res.status(403).json({ error: 'You are not assigned to this course.' });
+    }
+
+    const courseQuestionRows = await getAppRows(
+      'SELECT 1 FROM CourseQuestions WHERE course_id = ? AND question_id = ?',
+      [courseId, questionId]
+    );
+    if (!courseQuestionRows.length) {
+      return res.status(404).json({ error: 'This question is not part of the selected course.' });
+    }
+
+    await recordCourseProgress(userId, courseId, questionId, isCorrect);
+    const summary = await getCourseSummaryForUser(userId, courseId);
+    return res.json({ ok: true, summary });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/course-management', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    let rows;
+    if (user.role === 'Admin') {
+      rows = await getAppRows(`
+        SELECT c.*, u.username AS owner_name
+        FROM Courses c
+        LEFT JOIN users u ON u.id = c.owner_user_id
+        ORDER BY c.id DESC
+      `);
+    } else if (user.role === 'Teacher') {
+      rows = await getAppRows(`
+        SELECT c.*, u.username AS owner_name
+        FROM Courses c
+        LEFT JOIN users u ON u.id = c.owner_user_id
+        WHERE c.owner_user_id = ?
+           OR (c.visibility = 'public' AND c.published = 1)
+        ORDER BY c.id DESC
+      `, [user.id]);
+    } else {
+      return res.status(403).json({ error: 'Teacher or admin access only.' });
+    }
+
+    const populated = await Promise.all(rows.map(async (course) => {
+      const questions = await getAppRows(`
+        SELECT cq.question_id, cq.position, q.question, q.category, q.level, q.question_type
+        FROM CourseQuestions cq
+        JOIN Questions q ON q.question_id = cq.question_id
+        WHERE cq.course_id = ?
+        ORDER BY cq.position, cq.question_id
+      `, [course.id]);
+      const classRows = await getAppRows(`
+        SELECT cc.class_id, Classes.id AS teacher_id, users.username AS teacher_name
+        FROM CourseClasses cc
+        JOIN Classes ON Classes.cid = cc.class_id
+        LEFT JOIN users ON users.id = Classes.id
+        WHERE cc.course_id = ?
+        ORDER BY cc.class_id
+      `, [course.id]);
+      return {
+        ...course,
+        visibility: course.visibility === 'public' ? 'public' : 'private',
+        questionCount: questions.length,
+        questions,
+        classes: classRows,
+        canEdit: user.role === 'Admin' || course.owner_user_id === user.id,
+        canClone: course.owner_user_id !== user.id && course.visibility === 'public' && Boolean(course.published)
+      };
+    }));
+
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/course-management', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const title = String(req.body && req.body.title || '').trim();
+    const description = String(req.body && req.body.description || '').trim();
+    const visibility = req.body && req.body.visibility === 'public' ? 'public' : 'private';
+
+    if (!title) {
+      return res.status(400).json({ error: 'Course title is required.' });
+    }
+    if (user.role !== 'Admin' && user.role !== 'Teacher') {
+      return res.status(403).json({ error: 'Teacher or admin access only.' });
+    }
+
+    const result = await runAppSql(
+      'INSERT INTO Courses (title, description, visibility, published, owner_user_id) VALUES (?, ?, ?, 0, ?)',
+      [title, description, visibility, user.id]
+    );
+    return res.status(201).json({ ok: true, course: { id: result.lastID, title, description, visibility, owner_user_id: user.id } });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/courses/:courseId/clone', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    if (user.role !== 'Teacher' && user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Teacher or admin access only.' });
+    }
+    const courseId = Number(req.params.courseId);
+    const sourceRows = await getAppRows(
+      `SELECT * FROM Courses
+       WHERE id = ? AND published = 1 AND visibility = 'public'`,
+      [courseId]
+    );
+    if (!sourceRows.length) {
+      return res.status(404).json({ error: 'Public course not found.' });
+    }
+
+    const source = sourceRows[0];
+    const requestedTitle = String(req.body && req.body.title || '').trim();
+    const title = requestedTitle || `${source.title} (Copy)`;
+    const result = await runAppSql(
+      `INSERT INTO Courses (title, description, visibility, published, owner_user_id)
+       VALUES (?, ?, 'private', 0, ?)`,
+      [title, source.description || '', user.id]
+    );
+    const questions = await getAppRows(
+      'SELECT question_id, position FROM CourseQuestions WHERE course_id = ? ORDER BY position, question_id',
+      [courseId]
+    );
+    for (const question of questions) {
+      await runAppSql(
+        'INSERT INTO CourseQuestions (course_id, question_id, position) VALUES (?, ?, ?)',
+        [result.lastID, question.question_id, question.position]
+      );
+    }
+    return res.status(201).json({
+      ok: true,
+      course: { id: result.lastID, title, description: source.description || '', visibility: 'private', published: false, owner_user_id: user.id, questionCount: questions.length }
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/courses/:courseId/questions', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const courseId = Number(req.params.courseId);
+    const questionIds = Array.isArray(req.body && req.body.questionIds) ? req.body.questionIds : [];
+
+    const courseRows = await getAppRows('SELECT * FROM Courses WHERE id = ?', [courseId]);
+    if (!courseRows.length) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+    if (user.role !== 'Admin' && courseRows[0].owner_user_id !== user.id) {
+      return res.status(403).json({ error: 'You cannot edit this course.' });
+    }
+
+    if (!questionIds.length) {
+      return res.status(400).json({ error: 'At least one question is required.' });
+    }
+
+    for (let i = 0; i < questionIds.length; i += 1) {
+      const questionId = String(questionIds[i]);
+      if (!QUESTIONS_BY_ID.has(questionId)) {
+        return res.status(400).json({ error: `Question not found in the registry: ${questionId}` });
+      }
+      await runAppSql(
+        'INSERT OR IGNORE INTO CourseQuestions (course_id, question_id, position) VALUES (?, ?, ?)',
+        [courseId, questionId, i]
+      );
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/courses/:courseId/questions/:questionId', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const courseId = Number(req.params.courseId);
+    const questionId = String(req.params.questionId);
+    const courseRows = await getAppRows('SELECT owner_user_id FROM Courses WHERE id = ?', [courseId]);
+    if (!courseRows.length) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+    if (user.role !== 'Admin' && courseRows[0].owner_user_id !== user.id) {
+      return res.status(403).json({ error: 'You cannot edit this course.' });
+    }
+
+    const result = await runAppSql(
+      'DELETE FROM CourseQuestions WHERE course_id = ? AND question_id = ?',
+      [courseId, questionId]
+    );
+    if (!result.changes) {
+      return res.status(404).json({ error: 'Question is not in this course.' });
+    }
+
+    const remaining = await getAppRows(
+      'SELECT question_id FROM CourseQuestions WHERE course_id = ? ORDER BY position, question_id',
+      [courseId]
+    );
+    for (let i = 0; i < remaining.length; i += 1) {
+      await runAppSql('UPDATE CourseQuestions SET position = ? WHERE course_id = ? AND question_id = ?', [i, courseId, remaining[i].question_id]);
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/courses/:courseId/questions', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const courseId = Number(req.params.courseId);
+    const questionIds = Array.isArray(req.body && req.body.questionIds) ? req.body.questionIds.map(String) : null;
+    const courseRows = await getAppRows('SELECT owner_user_id FROM Courses WHERE id = ?', [courseId]);
+    if (!courseRows.length) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+    if (user.role !== 'Admin' && courseRows[0].owner_user_id !== user.id) {
+      return res.status(403).json({ error: 'You cannot edit this course.' });
+    }
+    if (!questionIds || new Set(questionIds).size !== questionIds.length) {
+      return res.status(400).json({ error: 'A unique ordered question list is required.' });
+    }
+
+    const existing = (await getAppRows('SELECT question_id FROM CourseQuestions WHERE course_id = ?', [courseId]))
+      .map((row) => row.question_id)
+      .sort();
+    const requested = questionIds.slice().sort();
+    if (existing.length !== requested.length || existing.some((questionId, index) => questionId !== requested[index])) {
+      return res.status(400).json({ error: 'The reorder list must contain exactly the selected course questions.' });
+    }
+
+    for (let i = 0; i < questionIds.length; i += 1) {
+      await runAppSql('UPDATE CourseQuestions SET position = ? WHERE course_id = ? AND question_id = ?', [i, courseId, questionIds[i]]);
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/courses/:courseId/classes', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const courseId = Number(req.params.courseId);
+    const classIds = Array.isArray(req.body && req.body.classIds) ? req.body.classIds.map(Number) : [];
+    const courseRows = await getAppRows('SELECT * FROM Courses WHERE id = ?', [courseId]);
+    if (!courseRows.length) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+    if (user.role !== 'Admin' && courseRows[0].owner_user_id !== user.id) {
+      return res.status(403).json({ error: 'You cannot edit this course.' });
+    }
+
+    for (const classId of classIds) {
+      if (!Number.isInteger(classId) || classId < 1) {
+        return res.status(400).json({ error: 'Each class must be a valid ID.' });
+      }
+      if (user.role !== 'Admin') {
+        const teacherPermission = await getAppRows('SELECT 1 FROM ClassTeachers WHERE cid = ? AND id = ?', [classId, user.id]);
+        if (!teacherPermission.length) {
+          return res.status(403).json({ error: 'You can only assign a course to a class you teach.' });
+        }
+      }
+      await runAppSql('INSERT OR IGNORE INTO CourseClasses (course_id, class_id) VALUES (?, ?)', [courseId, classId]);
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/courses/:courseId/publish', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    const courseId = Number(req.params.courseId);
+    const courseRows = await getAppRows('SELECT * FROM Courses WHERE id = ?', [courseId]);
+    if (!courseRows.length) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+    if (user.role !== 'Admin' && courseRows[0].owner_user_id !== user.id) {
+      return res.status(403).json({ error: 'You cannot publish this course.' });
+    }
+
+    const questionRows = await getAppRows('SELECT COUNT(*) AS total FROM CourseQuestions WHERE course_id = ?', [courseId]);
+    const classRows = await getAppRows('SELECT COUNT(*) AS total FROM CourseClasses WHERE course_id = ?', [courseId]);
+    if (!Number(questionRows[0]?.total)) {
+      return res.status(400).json({ error: 'Add at least one question before publishing.' });
+    }
+    if (courseRows[0].visibility !== 'public' && !Number(classRows[0]?.total)) {
+      return res.status(400).json({ error: 'Assign at least one class before publishing.' });
+    }
+
+    await runAppSql('UPDATE Courses SET published = 1 WHERE id = ?', [courseId]);
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/teacher-class-data', requireLogin, async (req, res) => {
+  try {
+    const user = req.session.user;
+    let classRows;
+    if (user.role === 'Admin') {
+      classRows = await getAppRows(`
+        SELECT Classes.cid, Classes.id AS teacher_id, users.username AS teacher_name
+        FROM Classes
+        LEFT JOIN users ON users.id = Classes.id
+        ORDER BY Classes.cid
+      `);
+    } else if (user.role === 'Teacher') {
+      classRows = await getAppRows(`
+        SELECT Classes.cid, Classes.id AS teacher_id, users.username AS teacher_name
+        FROM Classes
+        JOIN ClassTeachers ON ClassTeachers.cid = Classes.cid
+        LEFT JOIN users ON users.id = Classes.id
+        WHERE ClassTeachers.id = ?
+        ORDER BY Classes.cid
+      `, [user.id]);
+    } else {
+      return res.status(403).json({ error: 'Teacher or admin access only.' });
+    }
+
+    res.json({ classes: classRows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/teacher-course-progress', requireLogin, requireTeacher, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const courseId = Number(req.query.courseId);
+    if (!Number.isInteger(courseId) || courseId < 1) {
+      return res.status(400).json({ error: 'A valid course ID is required.' });
+    }
+
+    const courseRows = await getAppRows('SELECT * FROM Courses WHERE id = ? AND owner_user_id = ?', [courseId, userId]);
+    if (!courseRows.length) {
+      return res.status(403).json({ error: 'You do not have access to this course.' });
+    }
+
+    const students = await getAppRows(`
+      SELECT DISTINCT users.id AS student_id, users.username AS student_name,
+        (SELECT COUNT(*) FROM CourseQuestions WHERE course_id = ?) AS total_questions,
+        (SELECT COUNT(*) FROM CourseProgress cp WHERE cp.user_id = users.id AND cp.course_id = ? AND cp.is_completed = 1) AS completed_questions,
+        (SELECT COUNT(*) FROM CourseProgress cp WHERE cp.user_id = users.id AND cp.course_id = ? AND cp.attempts > 0) AS attempted_questions,
+        (SELECT COUNT(*) FROM CourseProgress cp WHERE cp.user_id = users.id AND cp.course_id = ? AND cp.last_answer_correct = 1) AS correct_answers
+      FROM ClassMembers
+      JOIN users ON users.id = ClassMembers.id
+      JOIN CourseClasses ON CourseClasses.class_id = ClassMembers.cid
+      WHERE CourseClasses.course_id = ?
+      ORDER BY users.username
+    `, [courseId, courseId, courseId, courseId, courseId]);
+
+    const progressRows = await getAppRows(`
+      SELECT cp.user_id AS student_id, users.username AS student_name, cp.question_id,
+        Questions.question, cp.attempts, cp.is_completed, cp.last_answer_correct, cp.last_attempt_at
+      FROM CourseProgress cp
+      JOIN users ON users.id = cp.user_id
+      JOIN Questions ON Questions.question_id = cp.question_id
+      WHERE cp.course_id = ?
+      ORDER BY users.username, cp.last_attempt_at DESC
+    `, [courseId]);
+
+    return res.json({
+      course: courseRows[0],
+      students,
+      progress: progressRows
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/question-progress', requireApiLogin, (req, res) => {
   const questionId = (req.body && req.body.questionId) ? String(req.body.questionId) : '';
   if (!questionId || !QUESTIONS_BY_ID.has(questionId)) {
@@ -677,7 +1345,10 @@ app.get('/dashboard', requireLogin, (req, res) => {
     ? '<div class="link-box"><a href="/admin-db">View database tables</a></div><div class="link-box"><a href="/admin-users">Manage users and classes</a></div>'
     : '';
   const teacherLinks = user.role === 'Teacher'
-    ? '<div class="link-box"><a href="/teacher-progress">View class question progress</a></div>'
+    ? '<div class="link-box"><a href="/teacher-progress">View class question progress</a></div><div class="link-box"><a href="/course-management">Manage courses</a></div>'
+    : '';
+  const courseManagementLink = (user.role === 'Teacher' || user.role === 'Admin')
+    ? '<div class="link-box"><a href="/course-management">Manage courses</a></div>'
     : '';
 
   res.send(`
@@ -707,12 +1378,20 @@ app.get('/dashboard', requireLogin, (req, res) => {
           <p><strong>Role:</strong> ${user.role}</p>
           <p><a href="/">Home page</a> | <a href="/sql-lab">SQL Practice Lab</a> | <a href="/logout">Logout</a></p>
           <div class="link-box"><a href="/sql-lab">Run SQL questions in the database lab</a></div>
+          ${courseManagementLink}
           ${teacherLinks}
           ${adminLinks}
         </div>
       </body>
     </html>
   `);
+});
+
+app.get('/course-management', requireLogin, (req, res) => {
+  if (req.session.user.role !== 'Teacher' && req.session.user.role !== 'Admin') {
+    return res.status(403).send('Teacher or admin access only.');
+  }
+  res.sendFile(path.join(__dirname, 'course-management.html'));
 });
 
 app.get('/teacher-progress', requireLogin, requireTeacher, (req, res) => {

@@ -76,6 +76,9 @@
       .question-list { min-width: 280px; }
       .question-list ul { margin: 0; padding-left: 20px; }
       .question-list li + li { margin-top: 6px; }
+      .course-question-list { min-width: 300px; }
+      .course-question-list ul { margin: 0; padding-left: 18px; }
+      .course-question-list li + li { margin-top: 5px; }
       .question-id { color: var(--muted); font-family: monospace; font-size: 12px; }
       .empty, .loading, .error { padding: 18px 0; color: var(--muted); }
       .error { color: #a42e2e; }
@@ -102,11 +105,21 @@
         </div>
         <div id="progress-content" class="loading" role="status">Loading class progress...</div>
       </section>
+      <section class="panel" style="margin-top:18px;" aria-labelledby="course-progress-heading">
+        <div class="controls">
+          <h2 id="course-progress-heading">Course results</h2>
+          <label for="course-select">Course</label>
+          <select id="course-select" disabled aria-label="Select a course"></select>
+        </div>
+        <div id="course-progress-content" class="loading" role="status">Loading course results...</div>
+      </section>
     </main>
 
     <script>
       const classSelect = document.getElementById('class-select');
       const content = document.getElementById('progress-content');
+      const courseSelect = document.getElementById('course-select');
+      const courseContent = document.getElementById('course-progress-content');
 
       function escapeHtml(value) {
         return String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({
@@ -167,6 +180,76 @@
         `;
       }
 
+      function renderCourseProgress(data) {
+        const students = data.students || [];
+        const progressByStudent = new Map();
+        (data.progress || []).forEach((entry) => {
+          if (!progressByStudent.has(entry.student_id)) progressByStudent.set(entry.student_id, []);
+          progressByStudent.get(entry.student_id).push(entry);
+        });
+        if (!students.length) {
+          courseContent.className = 'empty';
+          courseContent.textContent = 'No students are assigned to this course yet.';
+          return;
+        }
+        const rows = students.map((student) => {
+          const questions = progressByStudent.get(student.student_id) || [];
+          const questionList = questions.length
+            ? '<ul>' + questions.map((entry) => `<li><span class="question-id">${escapeHtml(entry.question_id)}</span> ${escapeHtml(entry.question)}: ${Number(entry.is_completed) ? 'Complete' : 'In progress'}, last answer ${Number(entry.last_answer_correct) ? 'correct' : 'incorrect'}, ${Number(entry.attempts)} attempt(s)</li>`).join('') + '</ul>'
+            : '<span class="empty">No attempts yet.</span>';
+          return `<tr>
+            <td class="student">${escapeHtml(student.student_name)}</td>
+            <td class="count">${Number(student.completed_questions) || 0} / ${Number(student.total_questions) || 0}</td>
+            <td class="count">${Number(student.attempted_questions) || 0}</td>
+            <td class="count">${Number(student.correct_answers) || 0}</td>
+            <td class="course-question-list">${questionList}</td>
+          </tr>`;
+        }).join('');
+        courseContent.className = '';
+        courseContent.innerHTML = `<div class="table-wrap"><table><thead><tr>
+          <th>Student</th><th>Completed</th><th>Attempted</th><th>Questions last answered correctly</th><th>Question results</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>`;
+      }
+
+      async function loadCourseProgress(courseId) {
+        if (!courseId) {
+          courseContent.className = 'empty';
+          courseContent.textContent = 'Select a course to view student results.';
+          return;
+        }
+        courseContent.className = 'loading';
+        courseContent.textContent = 'Loading course results...';
+        try {
+          const response = await fetch('/api/teacher-course-progress?courseId=' + encodeURIComponent(courseId), { credentials: 'same-origin' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Unable to load course results.');
+          renderCourseProgress(data);
+        } catch (error) {
+          courseContent.className = 'error';
+          courseContent.textContent = error.message;
+        }
+      }
+
+      async function loadCourses() {
+        try {
+          const response = await fetch('/api/course-management', { credentials: 'same-origin' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Unable to load courses.');
+          if (!data.length) {
+            courseSelect.disabled = true;
+            courseContent.className = 'empty';
+            courseContent.textContent = 'You do not own any courses yet.';
+            return;
+          }
+          courseSelect.innerHTML = data.map((course) => `<option value="${escapeHtml(course.id)}">${escapeHtml(course.title)}</option>`).join('');
+          courseSelect.disabled = false;
+          await loadCourseProgress(courseSelect.value);
+        } catch (error) {
+          courseContent.className = 'error';
+          courseContent.textContent = error.message;
+        }
+      }
+
       async function loadProgress(classId) {
         content.className = 'loading';
         content.textContent = 'Loading class progress...';
@@ -197,7 +280,9 @@
       }
 
       classSelect.addEventListener('change', () => loadProgress(classSelect.value));
+      courseSelect.addEventListener('change', () => loadCourseProgress(courseSelect.value));
       loadProgress('');
+      loadCourses();
     </script>
   </body>
 </html>
