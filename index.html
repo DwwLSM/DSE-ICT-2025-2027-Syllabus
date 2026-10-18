@@ -79,6 +79,9 @@ textarea:focus{outline:none;border-color:var(--pri)}
 .jb{padding:16px;background:#fafbff}
 .jb h4{font-size:.82rem;text-transform:uppercase;letter-spacing:.5px;color:var(--pri);margin:12px 0 5px}
 .jb h4:first-child{margin-top:0}
+.answer-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.answer-toggle{border:0;background:transparent;color:var(--pri);cursor:pointer;font-size:.75rem;line-height:1;padding:3px 5px}
+.answer-toggle:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:4px}
 .jb p,.jb li{font-size:.92rem;line-height:1.6;color:#334155}
 .jb ol,.jb ul{padding-left:20px;margin-top:3px}
 .tip{background:#fefce8;border-left:4px solid #eab308;padding:9px 13px;border-radius:6px;margin-top:12px;font-size:.89rem}
@@ -165,6 +168,7 @@ footer{text-align:center;color:var(--muted);font-size:.78rem;padding:16px;border
     <div class="acts">
       <button class="btn bp" id="btnsubmit">Submit Answer</button>
       <button class="btn bs hide" id="btnretry">↻ Retry</button>
+      <button class="btn bs hide" id="btnretryclear">↻ Retry &amp; Clear</button>
       <button class="btn bp hide" id="btnnext">Next →</button>
       <button class="btn bs" id="btnquit">✕ Quit</button>
     </div>
@@ -579,6 +583,7 @@ function renderQ(){
   $("btnsubmit").classList.remove("hide");
   $("btnnext").classList.add("hide");
   $("btnretry").classList.add("hide");
+  $("btnretryclear").classList.add("hide");
   $("btnsubmit").disabled=false;
 }
 
@@ -667,11 +672,15 @@ async function checkMasterSqlViaServer(q,ua){
   }
 }
 
-function justHTML(q){
+function justHTML(q, concealMasterSqlSample){
   var h='<div class="jb">';
   h+="<h4>✔ Why this is the answer</h4><p>"+esc(q.why)+"</p>";
   if(q.t==="sql"){
-    h+="<h4>📝 Sample answer</h4><div class='samp'>"+esc(q.sample)+"</div>";
+    if(concealMasterSqlSample){
+      h+="<h4 class='answer-heading'>📝 Sample answer <button type='button' class='answer-toggle mastersql-answer-toggle' aria-label='Show sample answer' aria-expanded='false' title='Show sample answer'>👁</button></h4><div class='samp hide'>"+esc(q.sample)+"</div>";
+    }else{
+      h+="<h4>📝 Sample answer</h4><div class='samp'>"+esc(q.sample)+"</div>";
+    }
     h+="<p style='margin-top:8px;font-size:.84rem;color:var(--muted)'>Checked key parts: "+esc(q.keys.join(", "))+"</p>";
   }
   if(q.t==="out"){
@@ -712,6 +721,14 @@ function renderMasterSqlTable(rows, title){
   }
   html+='</tbody></table></div>';
   return html;
+}
+
+function toggleMasterSqlAnswer(button){
+  var answer=button.parentNode.nextElementSibling;
+  var isHidden=answer.classList.toggle("hide");
+  button.setAttribute("aria-expanded",String(!isHidden));
+  button.setAttribute("aria-label",isHidden?"Show sample answer":"Hide sample answer");
+  button.title=isHidden?"Show sample answer":"Hide sample answer";
 }
 
 async function saveQuestionProgress(q,isCorrect){
@@ -790,16 +807,20 @@ async function submitAnswer(){
       h+=renderMasterSqlTable(serverData.studentRows || [], 'Your query result');
       h+=renderMasterSqlTable(serverData.expectedRows || [], 'Expected result');
     }
-    h+=justHTML(q);
+    h+=justHTML(q,q.tp === 'mastersql' && !ev.ok);
     $("fb").innerHTML=h;
+    var sampleAnswerToggle=$("fb").querySelector(".mastersql-answer-toggle");
+    if(sampleAnswerToggle){ sampleAnswerToggle.onclick=function(){ toggleMasterSqlAnswer(this); }; }
     $("fb").classList.remove("hide");
     $("btnsubmit").classList.add("hide");
     if(ev.ok){
       $("btnnext").classList.remove("hide");
       $("btnretry").classList.add("hide");
+      $("btnretryclear").classList.add("hide");
     }else{
       $("btnnext").classList.add("hide");
       if(cur.courseId || q.tp === 'mastersql'){ $("btnretry").classList.remove("hide"); }
+      if(q.tp === 'mastersql'){ $("btnretryclear").classList.remove("hide"); }
     }
   } else {
     $("btnsubmit").classList.add("hide");
@@ -813,19 +834,21 @@ function flashMsg(m){
   setTimeout(function(){ if(!cur.done) $("fb").classList.add("hide"); },1500);
 }
 
-function retryAnswer(){
+function retryAnswer(clearInput){
   var q=cur.list[cur.i];
   if(!q) return;
+  if(clearInput === undefined) clearInput=q.tp !== 'mastersql';
   cur.done=false;
   $("fb").classList.add("hide");
   $("fb").innerHTML="";
   $("btnretry").classList.add("hide");
+  $("btnretryclear").classList.add("hide");
   $("btnsubmit").classList.remove("hide");
   $("btnsubmit").disabled=false;
   $("btnnext").classList.add("hide");
   if(q.t!=="mc"){
     $("uans").readOnly=false;
-    $("uans").value="";
+    if(clearInput) $("uans").value="";
     $("uans").focus();
   } else {
     var all=$("qopts").children;
@@ -1052,7 +1075,8 @@ try{
   loadStudentCourses();
   $("btnstart").onclick=startQuiz;
   $("btnsubmit").onclick=submitAnswer;
-  $("btnretry").onclick=retryAnswer;
+  $("btnretry").onclick=function(){ retryAnswer(); };
+  $("btnretryclear").onclick=function(){ retryAnswer(true); };
   $("btnnext").onclick=nextQ;
   $("btnquit").onclick=function(){ show("setup"); updateBest(); };
   $("btnagain").onclick=startQuiz;
